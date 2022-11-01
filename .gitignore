@@ -1,0 +1,10 @@
+# JetBrains
+.idea/
+
+# Visual Studio Code
+.vscode/
+
+##########################
+
+node_modules/
+dist/
