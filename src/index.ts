@@ -4,9 +4,9 @@ import { app } from './container'
 export { GitLabAdapterService } from './git-lab-adapter.service'
 
 export interface FilesystemRepositoryOptions extends GitRepositoryOptions {
-  schemaPath: string
-  entriesPath: string
   checkedOutCommitHash: string
+  pathSchemaFile?: string
+  pathEntryFolder?: string
 }
 
 export function createAdapter(): GitAdapter {

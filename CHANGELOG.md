@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2022-12-13
+
+### Changed
+- Update schema file path and entries folder path repository options to align with other adapters
+
 ## [0.1.0] - 2022-11-01
 
 ### Added

@@ -3,8 +3,9 @@ import {
   CommitDraft,
   ContentEntry,
   ENTRY_EXTENSION,
+  PATH_SCHEMA_FILE,
+  PATH_ENTRY_FOLDER,
   GitAdapter,
-  SCHEMA_FILENAME,
 } from '@contentlab/git-adapter'
 import { FilesystemRepositoryOptions } from './index'
 import * as fs from 'fs/promises'
@@ -32,13 +33,13 @@ export class GitLabAdapterService implements GitAdapter {
       )
     }
 
-    const entriesPath = this.gitRepositoryOptions.entriesPath
+    const pathEntryFolder = this.getPathEntryFolder(this.gitRepositoryOptions)
 
     const readPromises = []
     const entries: ContentEntry[] = []
-    const fileNames = await fs.readdir(entriesPath)
+    const fileNames = await fs.readdir(pathEntryFolder)
     for (const fileName of fileNames) {
-      const filePath = `${entriesPath}/${fileName}`
+      const filePath = `${pathEntryFolder}/${fileName}`
       const id = fileName.substring(0, fileName.length - ENTRY_EXTENSION.length)
       readPromises.push(
         fs
@@ -60,12 +61,12 @@ export class GitLabAdapterService implements GitAdapter {
       throw new Error('Repository options must be set before reading')
     }
 
-    return fs.readFile(
-      `${this.gitRepositoryOptions.schemaPath}/${SCHEMA_FILENAME}`,
-      {
-        encoding: 'utf-8',
-      },
-    )
+    const schemaFilePath =
+      this.gitRepositoryOptions.pathSchemaFile ?? PATH_SCHEMA_FILE
+
+    return fs.readFile(schemaFilePath, {
+      encoding: 'utf-8',
+    })
   }
 
   public async getLatestCommitHash(ref: string): Promise<string> {
@@ -84,5 +85,18 @@ export class GitLabAdapterService implements GitAdapter {
 
   public async createCommit(commitDraft: CommitDraft): Promise<Commit> {
     throw new Error('This adapter does not support creating commits')
+  }
+
+  private getPathEntryFolder(
+    gitRepositoryOptions: FilesystemRepositoryOptions,
+  ): string {
+    const pathEntryFolder =
+      gitRepositoryOptions.pathEntryFolder ?? PATH_ENTRY_FOLDER
+
+    if (pathEntryFolder.endsWith('/')) {
+      return pathEntryFolder.substring(0, pathEntryFolder.length - 1)
+    }
+
+    return pathEntryFolder
   }
 }
