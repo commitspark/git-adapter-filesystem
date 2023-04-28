@@ -1,7 +1,7 @@
 {
   "name": "@contentlab/git-adapter-filesystem",
   "description": "Adapter that provides filesystem-based repository access to Contentlab",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "ISC",
   "private": false,
   "homepage": "https://github.com/contentlab-sh/git-adapter-filesystem",
