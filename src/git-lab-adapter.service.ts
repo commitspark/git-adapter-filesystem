@@ -48,7 +48,11 @@ export class GitLabAdapterService implements GitAdapter {
           })
           .then((fileContent) => {
             const content = parse(fileContent)
-            entries.push(new ContentEntry(id, content.metadata, content.data))
+            entries.push({
+              id: id,
+              metadata: content.metadata,
+              data: content.data,
+            })
           }),
       )
     }

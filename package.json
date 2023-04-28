@@ -11,7 +11,7 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@contentlab/git-adapter": "^0.6.0",
+    "@contentlab/git-adapter": "^0.7.0",
     "awilix": "^8.0.0",
     "yaml": "^2.1.1"
   },
