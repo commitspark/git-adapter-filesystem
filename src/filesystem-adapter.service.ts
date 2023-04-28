@@ -11,7 +11,7 @@ import { FilesystemRepositoryOptions } from './index'
 import * as fs from 'fs/promises'
 import { parse } from 'yaml'
 
-export class GitLabAdapterService implements GitAdapter {
+export class FilesystemAdapterService implements GitAdapter {
   private gitRepositoryOptions: FilesystemRepositoryOptions | undefined
 
   constructor() {}

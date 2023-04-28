@@ -1,7 +1,7 @@
 import { GitAdapter, GitRepositoryOptions } from '@contentlab/git-adapter'
-import { app } from './container'
+import { filesystemAdapterService } from './container'
 
-export { GitLabAdapterService } from './git-lab-adapter.service'
+export { FilesystemAdapterService } from './filesystem-adapter.service'
 
 export interface FilesystemRepositoryOptions extends GitRepositoryOptions {
   checkedOutCommitHash: string
@@ -10,5 +10,5 @@ export interface FilesystemRepositoryOptions extends GitRepositoryOptions {
 }
 
 export function createAdapter(): GitAdapter {
-  return app.adapter
+  return filesystemAdapterService
 }
