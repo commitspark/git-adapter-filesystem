@@ -1,4 +1,4 @@
-import { GitAdapter, GitRepositoryOptions } from '@contentlab/git-adapter'
+import { GitAdapter, GitRepositoryOptions } from '@commitspark/git-adapter'
 import { filesystemAdapterService } from './container'
 
 export { FilesystemAdapterService } from './filesystem-adapter.service'

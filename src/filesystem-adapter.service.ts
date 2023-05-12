@@ -6,7 +6,7 @@ import {
   PATH_SCHEMA_FILE,
   PATH_ENTRY_FOLDER,
   GitAdapter,
-} from '@contentlab/git-adapter'
+} from '@commitspark/git-adapter'
 import { FilesystemRepositoryOptions } from './index'
 import * as fs from 'fs/promises'
 import { parse } from 'yaml'

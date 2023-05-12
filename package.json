@@ -1,17 +1,16 @@
 {
-  "name": "@contentlab/git-adapter-filesystem",
-  "description": "Adapter that provides filesystem-based repository access to Contentlab",
+  "name": "@commitspark/git-adapter-filesystem",
+  "description": "Adapter that provides filesystem-based repository access to Commitspark",
   "version": "0.3.0",
   "license": "ISC",
   "private": false,
-  "homepage": "https://github.com/contentlab-sh/git-adapter-filesystem",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc"
   },
   "dependencies": {
-    "@contentlab/git-adapter": "^0.7.0",
+    "@commitspark/git-adapter": "^0.8.0",
     "yaml": "^2.1.1"
   },
   "devDependencies": {
