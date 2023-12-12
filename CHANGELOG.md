@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Add eslint
 - Upgrade to `@commitspark/git-adapter` 0.10.0 with new default directories
+- Reduce number of files included in NPM package
 
 ### Fixed
 - Fix build process to include only relevant files
