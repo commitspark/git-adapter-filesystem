@@ -3,18 +3,17 @@ import {
   CommitDraft,
   ContentEntry,
   ENTRY_EXTENSION,
-  PATH_SCHEMA_FILE,
-  PATH_ENTRY_FOLDER,
   GitAdapter,
 } from '@commitspark/git-adapter'
 import { FilesystemRepositoryOptions } from './index'
 import * as fs from 'fs/promises'
 import { parse } from 'yaml'
+import { PathFactoryService } from './path-factory.service'
 
 export class FilesystemAdapterService implements GitAdapter {
   private gitRepositoryOptions: FilesystemRepositoryOptions | undefined
 
-  constructor() {}
+  constructor(private pathFactory: PathFactoryService) {}
 
   public async setRepositoryOptions(
     repositoryOptions: FilesystemRepositoryOptions,
@@ -33,7 +32,9 @@ export class FilesystemAdapterService implements GitAdapter {
       )
     }
 
-    const pathEntryFolder = this.getPathEntryFolder(this.gitRepositoryOptions)
+    const pathEntryFolder = this.pathFactory.getPathEntryFolder(
+      this.gitRepositoryOptions,
+    )
 
     const readPromises = []
     const entries: ContentEntry[] = []
@@ -65,8 +66,9 @@ export class FilesystemAdapterService implements GitAdapter {
       throw new Error('Repository options must be set before reading')
     }
 
-    const schemaFilePath =
-      this.gitRepositoryOptions.pathSchemaFile ?? PATH_SCHEMA_FILE
+    const schemaFilePath = this.pathFactory.getPathSchema(
+      this.gitRepositoryOptions,
+    )
 
     return fs.readFile(schemaFilePath, {
       encoding: 'utf-8',
@@ -89,18 +91,5 @@ export class FilesystemAdapterService implements GitAdapter {
 
   public async createCommit(commitDraft: CommitDraft): Promise<Commit> {
     throw new Error('This adapter does not support creating commits')
-  }
-
-  private getPathEntryFolder(
-    gitRepositoryOptions: FilesystemRepositoryOptions,
-  ): string {
-    const pathEntryFolder =
-      gitRepositoryOptions.pathEntryFolder ?? PATH_ENTRY_FOLDER
-
-    if (pathEntryFolder.endsWith('/')) {
-      return pathEntryFolder.substring(0, pathEntryFolder.length - 1)
-    }
-
-    return pathEntryFolder
   }
 }
