@@ -12,11 +12,11 @@ needs to be read.
 Instantiate the adapter with `createAdapter()` and then set adapter options `FilesystemRepositoryOptions` on the
 instance.
 
-| Option name            | Required | Default value           | Description                                                 |
-|------------------------|----------|-------------------------|-------------------------------------------------------------|
-| `checkedOutCommitHash` | True     |                         | Git hash / revision currently checked out in the filesystem |
-| `pathSchemaFile`       | False    | `schema/schema.graphql` | Path to schema file in repository                           |
-| `pathEntryFolder`      | False    | `entries/`              | Path to folder for content entries                          |
+| Option name            | Required | Default value                       | Description                                                 |
+|------------------------|----------|-------------------------------------|-------------------------------------------------------------|
+| `checkedOutCommitHash` | True     |                                     | Git hash / revision currently checked out in the filesystem |
+| `pathSchemaFile`       | False    | `commitspark/schema/schema.graphql` | Path to schema file in repository                           |
+| `pathEntryFolder`      | False    | `commitspark/entries/`              | Path to folder for content entries                          |
 
 # License
 

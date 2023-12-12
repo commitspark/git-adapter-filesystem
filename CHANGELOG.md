@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Changed
 - Add eslint
+- Upgrade to `@commitspark/git-adapter` 0.10.0 with new default directories
 
 ### Fixed
 - Fix build process to include only relevant files
