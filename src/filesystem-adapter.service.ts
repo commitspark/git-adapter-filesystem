@@ -1,7 +1,7 @@
 import {
   Commit,
   CommitDraft,
-  ContentEntry,
+  Entry,
   ENTRY_EXTENSION,
   GitAdapter,
 } from '@commitspark/git-adapter'
@@ -21,7 +21,7 @@ export class FilesystemAdapterService implements GitAdapter {
     this.gitRepositoryOptions = repositoryOptions
   }
 
-  public async getContentEntries(commitHash: string): Promise<ContentEntry[]> {
+  public async getEntries(commitHash: string): Promise<Entry[]> {
     if (this.gitRepositoryOptions === undefined) {
       throw new Error('Repository options must be set before reading')
     }
@@ -37,7 +37,7 @@ export class FilesystemAdapterService implements GitAdapter {
     )
 
     const readPromises = []
-    const entries: ContentEntry[] = []
+    const entries: Entry[] = []
     const fileNames = await fs.readdir(pathEntryFolder)
     for (const fileName of fileNames) {
       const filePath = `${pathEntryFolder}/${fileName}`

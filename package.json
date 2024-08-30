@@ -19,7 +19,7 @@
     "lint": "eslint \"{src,tests}/**/*.ts\""
   },
   "dependencies": {
-    "@commitspark/git-adapter": "^0.10.0",
+    "@commitspark/git-adapter": "^0.13.0",
     "yaml": "^2.1.1"
   },
   "devDependencies": {
