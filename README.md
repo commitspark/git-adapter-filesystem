@@ -1,8 +1,9 @@
 # Introduction
 
-**[Commitspark](https://commitspark.com) is a workflow-first Content Management System based on Git and GraphQL.**
+[Commitspark](https://commitspark.com) is a set of tools to manage structured data with Git through a GraphQL API.
 
-This repository holds code that implements a Commitspark Git adapter for accessing content stored in a local filesystem.
+This repository holds code for a [Commitspark Git adapter](https://github.com/commitspark/git-adapter) that provides
+access to Git repositories checked out in the local filesystem.
 
 This adapter is meant to be used in CI/CD pipelines where a single Git revision of content checked out in the filesystem
 needs to be read.
