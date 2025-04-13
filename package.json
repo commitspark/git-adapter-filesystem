@@ -4,8 +4,7 @@
   "version": "0.6.0",
   "license": "ISC",
   "private": false,
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "type": "module",
   "files": [
     "dist/**",
     "src/**",
@@ -14,21 +13,30 @@
     "package.json",
     "CHANGELOG.md"
   ],
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.js",
+      "require": "./dist/cjs/index.js",
+      "import": "./dist/esm/index.js",
+      "default": "./dist/esm/index.js"
+    }
+  },
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:cjs && npm run build:esm && npm run build:types",
+    "build:cjs": "tsc --project tsconfig.build.cjs.json && echo '{\"type\": \"commonjs\"}' > dist/cjs/package.json",
+    "build:esm": "tsc --project tsconfig.build.esm.json",
+    "build:types": "tsc --project tsconfig.build.types.json",
     "lint": "eslint \"{src,tests}/**/*.ts\""
   },
   "dependencies": {
     "@commitspark/git-adapter": "^0.13.0",
-    "yaml": "^2.1.1"
+    "yaml": "^2.0.0"
   },
   "devDependencies": {
-    "@types/node": "^18.11.9",
-    "@typescript-eslint/eslint-plugin": "^6.14.0",
-    "eslint": "^8.55.0",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-prettier": "^5.0.1",
+    "@types/node": "^22.14.0",
+    "eslint": "^9.24.0",
     "prettier": "^3.1.1",
-    "typescript": "^4.8.4"
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.29.0"
   }
 }
