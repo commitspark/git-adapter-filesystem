@@ -31,7 +31,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@commitspark/git-adapter": "^0.13.0",
+    "@commitspark/git-adapter": "^0.20.0",
     "yaml": "^2.0.0"
   },
   "devDependencies": {
