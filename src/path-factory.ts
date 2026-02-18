@@ -1,5 +1,5 @@
-import { FilesystemRepositoryOptions } from './index'
-import { PATH_ENTRY_FOLDER, PATH_SCHEMA_FILE } from './types'
+import { FilesystemRepositoryOptions } from './index.ts'
+import { PATH_ENTRY_FOLDER, PATH_SCHEMA_FILE } from './types.ts'
 
 export const getPathSchema = (
   gitRepositoryOptions: FilesystemRepositoryOptions,

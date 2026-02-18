@@ -4,11 +4,11 @@ import {
   ErrorCode,
   GitAdapterError,
 } from '@commitspark/git-adapter'
-import { FilesystemRepositoryOptions } from './index'
+import { FilesystemRepositoryOptions } from './index.ts'
 import * as fs from 'fs/promises'
 import { parse } from 'yaml'
-import { getPathEntryFolder, getPathSchema } from './path-factory'
-import { ENTRY_EXTENSION } from './types'
+import { getPathEntryFolder, getPathSchema } from './path-factory.ts'
+import { ENTRY_EXTENSION } from './types.ts'
 
 export const getEntries = async (
   gitRepositoryOptions: FilesystemRepositoryOptions,

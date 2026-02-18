@@ -4,7 +4,7 @@ import {
   getEntries,
   getLatestCommitHash,
   getSchema,
-} from './filesystem-adapter'
+} from './filesystem-adapter.ts'
 
 export interface FilesystemRepositoryOptions {
   checkedOutCommitHash: string
