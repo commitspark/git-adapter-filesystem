@@ -8,3 +8,7 @@
 
 node_modules/
 dist/
+
+# Mac and Windows system files
+.DS_Store
+Thumbs.db
