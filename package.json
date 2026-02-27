@@ -1,7 +1,7 @@
 {
   "name": "@commitspark/git-adapter-filesystem",
   "description": "Adapter that provides filesystem-based repository access to Commitspark",
-  "version": "0.11.0",
+  "version": "1.0.0",
   "license": "ISC",
   "private": false,
   "files": [
