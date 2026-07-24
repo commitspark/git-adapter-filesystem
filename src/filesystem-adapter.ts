@@ -184,7 +184,7 @@ export const createCommit = async (
 
   await runGit(['add', '--', ...touchedPaths], cwd)
   await runGit(
-    ['commit', '-m', commitDraft.message, '--', ...touchedPaths],
+    ['commit', `--message=${commitDraft.message}`, '--', ...touchedPaths],
     cwd,
   )
 
