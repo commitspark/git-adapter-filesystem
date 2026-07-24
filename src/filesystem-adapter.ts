@@ -1,34 +1,50 @@
 import {
   Commit,
+  CommitDraft,
   Entry,
+  ENTRY_ID_INVALID_CHARACTERS,
   ErrorCode,
   GitAdapterError,
 } from '@commitspark/git-adapter'
 import { FilesystemRepositoryOptions } from './index.ts'
 import * as fs from 'fs/promises'
-import { parse } from 'yaml'
+import * as path from 'path'
+import { parse, stringify } from 'yaml'
 import { getPathEntryFolder, getPathSchema } from './path-factory.ts'
 import { ENTRY_EXTENSION } from './types.ts'
+import { getCurrentBranch, getCurrentCommitHash, runGit } from './git-cli.ts'
 
 export const getEntries = async (
   gitRepositoryOptions: FilesystemRepositoryOptions,
   commitHash: string,
 ): Promise<Entry[]> => {
-  if (gitRepositoryOptions === undefined) {
-    throw new Error('Repository options must be set before reading')
-  }
-  if (commitHash !== gitRepositoryOptions.checkedOutCommitHash) {
-    throw new Error(
+  const cwd = getWorkingDirectory()
+  const currentCommitHash = await getCurrentCommitHash(cwd)
+  if (commitHash !== currentCommitHash) {
+    throw new GitAdapterError(
+      ErrorCode.BAD_REQUEST,
       `This adapter does not support navigating the git history; current commit hash is ` +
-        `"${gitRepositoryOptions.checkedOutCommitHash}" but "${commitHash}" was requested`,
+        `"${currentCommitHash}" but "${commitHash}" was requested`,
     )
   }
 
-  const pathEntryFolder = getPathEntryFolder(gitRepositoryOptions)
+  const pathEntryFolder = path.resolve(
+    cwd,
+    getPathEntryFolder(gitRepositoryOptions),
+  )
+
+  let fileNames: string[]
+  try {
+    fileNames = await fs.readdir(pathEntryFolder)
+  } catch (error) {
+    throw new GitAdapterError(
+      ErrorCode.INTERNAL_ERROR,
+      `Failed to read entry folder "${pathEntryFolder}": ${(error as Error).message}`,
+    )
+  }
 
   const readPromises = []
   const entries: Entry[] = []
-  const fileNames = await fs.readdir(pathEntryFolder)
   for (const fileName of fileNames) {
     const filePath = `${pathEntryFolder}/${fileName}`
     const id = fileName.substring(0, fileName.length - ENTRY_EXTENSION.length)
@@ -44,6 +60,12 @@ export const getEntries = async (
             metadata: content.metadata,
             data: content.data,
           })
+        })
+        .catch((error) => {
+          throw new GitAdapterError(
+            ErrorCode.INTERNAL_ERROR,
+            `Failed to read entry file "${filePath}": ${(error as Error).message}`,
+          )
         }),
     )
   }
@@ -54,31 +76,125 @@ export const getEntries = async (
 export const getSchema = async (
   gitRepositoryOptions: FilesystemRepositoryOptions,
 ): Promise<string> => {
-  const schemaFilePath = getPathSchema(gitRepositoryOptions)
+  const cwd = getWorkingDirectory()
+  const schemaFilePath = path.resolve(cwd, getPathSchema(gitRepositoryOptions))
 
-  return fs.readFile(schemaFilePath, {
-    encoding: 'utf-8',
-  })
+  try {
+    return await fs.readFile(schemaFilePath, {
+      encoding: 'utf-8',
+    })
+  } catch (error) {
+    throw new GitAdapterError(
+      ErrorCode.INTERNAL_ERROR,
+      `Failed to read schema file "${schemaFilePath}": ${(error as Error).message}`,
+    )
+  }
 }
 
 export const getLatestCommitHash = async (
   gitRepositoryOptions: FilesystemRepositoryOptions,
   ref: string,
 ): Promise<string> => {
-  if (ref !== gitRepositoryOptions.checkedOutCommitHash) {
+  const cwd = getWorkingDirectory()
+  const currentBranch = await getCurrentBranch(cwd)
+
+  if (ref !== currentBranch) {
     throw new GitAdapterError(
-      ErrorCode.INTERNAL_ERROR,
-      'This adapter does not support navigating the git history; the adapter was created with commit hash ' +
-        `"${gitRepositoryOptions.checkedOutCommitHash}" but "${ref}" was requested`,
+      ErrorCode.BAD_REQUEST,
+      `Requested commit ref "${ref}" does not match currently checked out branch ` +
+        `"${currentBranch}"; this adapter requires the target branch to already be checked out`,
     )
   }
 
-  return gitRepositoryOptions.checkedOutCommitHash
+  const currentCommitHash = await getCurrentCommitHash(cwd)
+  if (!currentCommitHash) {
+    throw new GitAdapterError(
+      ErrorCode.BAD_REQUEST,
+      `Requested commit ref "${ref}" does not have any existing commits`,
+    )
+  }
+
+  return currentCommitHash
 }
 
-export const createCommit = async (): Promise<Commit> => {
-  throw new GitAdapterError(
-    ErrorCode.INTERNAL_ERROR,
-    'This adapter does not support creating commits',
+export const createCommit = async (
+  gitRepositoryOptions: FilesystemRepositoryOptions,
+  commitDraft: CommitDraft,
+): Promise<Commit> => {
+  const cwd = getWorkingDirectory()
+  const pathEntryFolder = getPathEntryFolder(gitRepositoryOptions)
+
+  const currentBranch = await getCurrentBranch(cwd)
+  if (currentBranch !== commitDraft.ref) {
+    throw new GitAdapterError(
+      ErrorCode.BAD_REQUEST,
+      `Requested commit ref "${commitDraft.ref}" does not match currently checked out branch ` +
+        `"${currentBranch}"; this adapter requires the target branch to already be checked out`,
+    )
+  }
+
+  const currentCommitHash = await getCurrentCommitHash(cwd)
+  if (currentCommitHash !== commitDraft.parentSha) {
+    throw new GitAdapterError(
+      ErrorCode.CONFLICT,
+      `Branch "${commitDraft.ref}" has moved: expected parent commit "${commitDraft.parentSha}" ` +
+        `but current HEAD is "${currentCommitHash}"`,
+    )
+  }
+
+  const touchedPaths: string[] = []
+
+  for (const entryDraft of commitDraft.entries) {
+    if (ENTRY_ID_INVALID_CHARACTERS.test(entryDraft.id)) {
+      throw new GitAdapterError(
+        ErrorCode.BAD_REQUEST,
+        `Entry ID "${entryDraft.id}" contains invalid characters`,
+      )
+    }
+
+    const entryPath = `${pathEntryFolder}/${entryDraft.id}${ENTRY_EXTENSION}`
+    const absolutePath = path.resolve(cwd, entryPath)
+
+    if (entryDraft.deletion) {
+      const existed = await fs
+        .stat(absolutePath)
+        .then(() => true)
+        .catch(() => false)
+      if (!existed) {
+        continue
+      }
+      await fs.rm(absolutePath)
+    } else {
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true })
+      await fs.writeFile(
+        absolutePath,
+        stringify({ metadata: entryDraft.metadata, data: entryDraft.data }),
+        { encoding: 'utf8' },
+      )
+    }
+    touchedPaths.push(entryPath)
+  }
+
+  if (touchedPaths.length === 0) {
+    throw new GitAdapterError(
+      ErrorCode.BAD_REQUEST,
+      'Commit draft contains no effective entry changes',
+    )
+  }
+
+  await runGit(['add', '--', ...touchedPaths], cwd)
+  await runGit(
+    ['commit', '-m', commitDraft.message, '--', ...touchedPaths],
+    cwd,
+  )
+
+  const newCommitHash = await runGit(['rev-parse', 'HEAD'], cwd)
+
+  return { commitHash: newCommitHash }
+}
+
+function getWorkingDirectory(): string {
+  return (
+    process.env.GITHUB_WORKSPACE ?? process.env.CI_PROJECT_DIR ?? process.cwd()
   )
 }
