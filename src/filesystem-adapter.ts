@@ -46,6 +46,9 @@ export const getEntries = async (
   const readPromises = []
   const entries: Entry[] = []
   for (const fileName of fileNames) {
+    if (!fileName.endsWith(ENTRY_EXTENSION)) {
+      continue
+    }
     const filePath = `${pathEntryFolder}/${fileName}`
     const id = fileName.substring(0, fileName.length - ENTRY_EXTENSION.length)
     readPromises.push(

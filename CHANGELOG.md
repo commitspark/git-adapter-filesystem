@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fix commit failing when commit message contains a colon
+- Fix entry retrieval failing when entries folder contains non-`.yaml` files
 
 ## [1.1.0] - 2026-07-24
 
