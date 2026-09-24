@@ -1,7 +1,13 @@
-import { CommitDraft, Entry, GitAdapter } from '@commitspark/git-adapter'
+import {
+  CommitDraft,
+  Entry,
+  EntryHash,
+  GitAdapter,
+} from '@commitspark/git-adapter'
 import {
   createCommit,
-  getEntries,
+  getEntriesByIds,
+  getEntryHashes,
   getLatestCommitHash,
   getSchema,
 } from './filesystem-adapter.ts'
@@ -19,8 +25,10 @@ export function createAdapter(
   gitRepositoryOptions: FilesystemRepositoryOptions,
 ): GitAdapter {
   return {
-    getEntries: (...args): Promise<Entry[]> =>
-      getEntries(gitRepositoryOptions, ...args),
+    getEntryHashes: (...args): Promise<EntryHash[]> =>
+      getEntryHashes(gitRepositoryOptions, ...args),
+    getEntriesByIds: (...args): Promise<Entry[]> =>
+      getEntriesByIds(gitRepositoryOptions, ...args),
     getSchema: (): Promise<string> => getSchema(gitRepositoryOptions),
     getLatestCommitHash: (ref: string) =>
       getLatestCommitHash(gitRepositoryOptions, ref),
