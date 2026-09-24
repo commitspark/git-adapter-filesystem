@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so that callers only need to retrieve changed entries
 - Return no entry hashes instead of failing when the entry folder does not exist, consistent with other adapters
 
+### Fixed
+
+- Reject entry IDs with invalid characters in `getEntriesByIds` so that entry retrieval cannot read files outside the
+  entry folder
+
 ## [1.1.1] - 2026-07-24
 
 ### Fixed

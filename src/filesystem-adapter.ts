@@ -69,6 +69,7 @@ export const getEntriesByIds = async (
 ): Promise<Entry[]> => {
   const cwd = getWorkingDirectory()
   await assertCommitIsCheckedOut(cwd, commitHash)
+  ids.forEach(assertEntryIdIsValid)
 
   const pathEntryFolder = path.resolve(
     cwd,
@@ -103,6 +104,16 @@ const assertCommitIsCheckedOut = async (
       ErrorCode.BAD_REQUEST,
       `This adapter does not support navigating the git history; current commit hash is ` +
         `"${currentCommitHash}" but "${commitHash}" was requested`,
+    )
+  }
+}
+
+// path separators are among the invalid characters, so valid IDs cannot address files outside the entry folder
+const assertEntryIdIsValid = (id: string): void => {
+  if (ENTRY_ID_INVALID_CHARACTERS.test(id)) {
+    throw new GitAdapterError(
+      ErrorCode.BAD_REQUEST,
+      `Entry ID "${id}" contains invalid characters`,
     )
   }
 }
@@ -205,12 +216,7 @@ export const createCommit = async (
   const touchedPaths: string[] = []
 
   for (const entryDraft of commitDraft.entries) {
-    if (ENTRY_ID_INVALID_CHARACTERS.test(entryDraft.id)) {
-      throw new GitAdapterError(
-        ErrorCode.BAD_REQUEST,
-        `Entry ID "${entryDraft.id}" contains invalid characters`,
-      )
-    }
+    assertEntryIdIsValid(entryDraft.id)
 
     const entryPath = `${pathEntryFolder}/${entryDraft.id}${ENTRY_EXTENSION}`
     const absolutePath = path.resolve(cwd, entryPath)

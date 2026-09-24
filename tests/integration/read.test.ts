@@ -131,6 +131,18 @@ describe('Reading', () => {
       expect(mockedFs.readFile).not.toHaveBeenCalled()
     })
 
+    it.each(['../escaped', 'nested/entry', '..\\escaped'])(
+      'should throw GitAdapterError with BAD_REQUEST for entry ID "%s"',
+      async (id) => {
+        mockReadFile({})
+
+        await expect(
+          createAdapter({}).getEntriesByIds(commitHash, ['a', id]),
+        ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
+        expect(mockedFs.readFile).not.toHaveBeenCalled()
+      },
+    )
+
     it('should throw GitAdapterError with INTERNAL_ERROR when entry file cannot be read', async () => {
       mockReadFile({ [`${entryFolder}/a.yaml`]: createFsError('EACCES') })
 
