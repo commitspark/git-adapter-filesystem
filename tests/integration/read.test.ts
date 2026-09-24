@@ -82,6 +82,15 @@ describe('Reading', () => {
       expect(mockedFs.readdir).not.toHaveBeenCalled()
     })
 
+    it('should return no hashes when entry folder does not exist', async () => {
+      mockedFs.readdir.mockRejectedValue(createFsError('ENOENT'))
+
+      await expect(
+        createAdapter({}).getEntryHashes(commitHash),
+      ).resolves.toEqual([])
+      expect(mockedFs.readdir).toHaveBeenCalledWith(entryFolder)
+    })
+
     it('should throw GitAdapterError with INTERNAL_ERROR when entry folder cannot be read', async () => {
       mockedFs.readdir.mockRejectedValue(createFsError('EACCES'))
 

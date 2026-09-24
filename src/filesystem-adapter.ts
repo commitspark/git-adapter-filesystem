@@ -32,6 +32,10 @@ export const getEntryHashes = async (
   try {
     fileNames = await fs.readdir(pathEntryFolder)
   } catch (error) {
+    // a repository without entries has no entry folder
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return []
+    }
     throw new GitAdapterError(
       ErrorCode.INTERNAL_ERROR,
       `Failed to read entry folder "${pathEntryFolder}": ${(error as Error).message}`,
