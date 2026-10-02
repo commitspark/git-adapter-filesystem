@@ -4,9 +4,9 @@ import tseslint from 'typescript-eslint'
 import importPlugin from 'eslint-plugin-import'
 
 export default defineConfig([
-  { files: ['src/**/*.{ts}', 'tests/**/*.{ts}'] },
+  { files: ['src/**/*.ts', 'tests/**/*.ts'] },
   {
-    files: ['src/**/*.{ts}'],
+    files: ['src/**/*.ts'],
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
   },
   tseslint.configs.recommended,
