@@ -1,7 +1,7 @@
 import { execFile } from 'child_process'
 import * as fs from 'fs/promises'
 
-export const WORKING_DIRECTORY = '/repository'
+const WORKING_DIRECTORY = '/repository'
 
 // environment variables read by the adapter that must not leak in from the host (e.g. when running in CI)
 const ADAPTER_ENV_VARS = [
@@ -37,7 +37,7 @@ type GitResponse = string | Error
 
 // git invocation outcome keyed by space-joined arguments; a string is returned as stdout, an error is thrown;
 // an array provides outcomes for consecutive invocations
-export type GitResponses = Record<string, GitResponse | GitResponse[]>
+type GitResponses = Record<string, GitResponse | GitResponse[]>
 
 export const mockGit = (responses: GitResponses): void => {
   const callCounts: Record<string, number> = {}
