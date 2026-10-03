@@ -38,6 +38,7 @@
     "build:esm": "tsc --project tsconfig.build.esm.json && echo '{\"type\":\"module\"}' > dist/esm/package.json",
     "lint": "eslint \"{src,tests}/**/*.ts\"",
     "test": "jest",
+    "check:package": "attw --pack . && node -e \"require(process.env.npm_package_name)\" && node --input-type=module -e \"await import(process.env.npm_package_name)\"",
     "knip": "knip",
     "prepublishOnly": "npm run build",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\""
@@ -47,6 +48,7 @@
     "yaml": "^2.0.0"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.14.0",
     "eslint": "^9.24.0",
