@@ -3,12 +3,13 @@ import {
   CommitDraft,
   Entry,
   EntryHash,
-  ENTRY_ID_INVALID_CHARACTERS,
   ErrorCode,
   GitAdapterError,
+  validateEntryId,
 } from '@commitspark/git-adapter'
 import { FilesystemRepositoryOptions } from './index.ts'
 import { createHash } from 'crypto'
+import { Dirent, Stats } from 'fs'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import { parse, stringify } from 'yaml'
@@ -28,25 +29,15 @@ export const getEntryHashes = async (
     getPathEntryFolder(gitRepositoryOptions),
   )
 
-  let fileNames: string[]
-  try {
-    fileNames = await fs.readdir(pathEntryFolder)
-  } catch (error) {
+  const entryFilePaths = await listEntryFilePaths(pathEntryFolder, '')
+  if (entryFilePaths === undefined) {
     // a repository without entries has no entry folder
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return []
-    }
-    throw new GitAdapterError(
-      ErrorCode.INTERNAL_ERROR,
-      `Failed to read entry folder "${pathEntryFolder}": ${(error as Error).message}`,
-    )
+    return []
   }
 
-  const entryIds = fileNames
-    .filter((fileName) => fileName.endsWith(ENTRY_EXTENSION))
-    .map((fileName) =>
-      fileName.substring(0, fileName.length - ENTRY_EXTENSION.length),
-    )
+  const entryIds = entryFilePaths.map((filePath) =>
+    filePath.substring(0, filePath.length - ENTRY_EXTENSION.length),
+  )
 
   return Promise.all(
     entryIds.map(async (id) => {
@@ -69,11 +60,14 @@ export const getEntriesByIds = async (
 ): Promise<Entry[]> => {
   const cwd = getWorkingDirectory()
   await assertCommitIsCheckedOut(cwd, commitHash)
-  ids.forEach(assertEntryIdIsValid)
+  ids.forEach(validateEntryId)
 
   const pathEntryFolder = path.resolve(
     cwd,
     getPathEntryFolder(gitRepositoryOptions),
+  )
+  await Promise.all(
+    ids.map((id) => assertPathHasNoSymbolicLinks(pathEntryFolder, id)),
   )
 
   const entries = await Promise.all(
@@ -108,13 +102,95 @@ const assertCommitIsCheckedOut = async (
   }
 }
 
-// path separators are among the invalid characters, so valid IDs cannot address files outside the entry folder
-const assertEntryIdIsValid = (id: string): void => {
-  if (ENTRY_ID_INVALID_CHARACTERS.test(id)) {
+// returns the paths of all entry files below the given folder relative to the entry folder, using "/" as separator;
+// hidden files and folders are skipped and symbolic links are not followed; returns undefined if the folder does not
+// exist
+const listEntryFilePaths = async (
+  pathEntryFolder: string,
+  relativeFolderPath: string,
+): Promise<string[] | undefined> => {
+  const folderPath =
+    relativeFolderPath === ''
+      ? pathEntryFolder
+      : `${pathEntryFolder}/${relativeFolderPath}`
+
+  let directoryEntries: Dirent[]
+  try {
+    directoryEntries = await fs.readdir(folderPath, { withFileTypes: true })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return undefined
+    }
     throw new GitAdapterError(
-      ErrorCode.BAD_REQUEST,
-      `Entry ID "${id}" contains invalid characters`,
+      ErrorCode.INTERNAL_ERROR,
+      `Failed to read entry folder "${folderPath}": ${(error as Error).message}`,
     )
+  }
+
+  const filePaths: string[] = []
+  for (const directoryEntry of directoryEntries) {
+    if (directoryEntry.name.startsWith('.')) {
+      continue
+    }
+    const relativePath =
+      relativeFolderPath === ''
+        ? directoryEntry.name
+        : `${relativeFolderPath}/${directoryEntry.name}`
+    if (directoryEntry.isDirectory()) {
+      const nestedFilePaths = await listEntryFilePaths(
+        pathEntryFolder,
+        relativePath,
+      )
+      if (nestedFilePaths === undefined) {
+        throw new GitAdapterError(
+          ErrorCode.INTERNAL_ERROR,
+          `Entry folder "${pathEntryFolder}/${relativePath}" disappeared while reading entry folder "${pathEntryFolder}"`,
+        )
+      }
+      filePaths.push(...nestedFilePaths)
+    } else if (
+      directoryEntry.isFile() &&
+      directoryEntry.name.endsWith(ENTRY_EXTENSION)
+    ) {
+      filePaths.push(relativePath)
+    }
+  }
+  return filePaths
+}
+
+const getPathEntryFile = (pathEntryFolder: string, id: string): string =>
+  `${pathEntryFolder}/${id}${ENTRY_EXTENSION}`
+
+// the file system follows symbolic links in any segment of a path, so that a symbolic link below the entry folder
+// could lead to files outside of it; consistent with the entry listing, which does not follow symbolic links, paths
+// through symbolic links are rejected
+const assertPathHasNoSymbolicLinks = async (
+  pathEntryFolder: string,
+  id: string,
+): Promise<void> => {
+  let currentPath = pathEntryFolder
+  for (const segment of `${id}${ENTRY_EXTENSION}`.split('/')) {
+    currentPath = `${currentPath}/${segment}`
+    let stats: Stats
+    try {
+      stats = await fs.lstat(currentPath)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        // nothing exists below a missing path segment
+        return
+      }
+      throw new GitAdapterError(
+        ErrorCode.INTERNAL_ERROR,
+        `Failed to inspect path "${currentPath}": ${(error as Error).message}`,
+      )
+    }
+    if (stats.isSymbolicLink()) {
+      throw new GitAdapterError(
+        ErrorCode.BAD_REQUEST,
+        `Entry ID "${id}" leads through symbolic link "${currentPath}", which is not permitted`,
+      )
+    }
   }
 }
 
@@ -123,7 +199,7 @@ const readEntryFile = async (
   pathEntryFolder: string,
   id: string,
 ): Promise<Buffer | undefined> => {
-  const filePath = `${pathEntryFolder}/${id}${ENTRY_EXTENSION}`
+  const filePath = getPathEntryFile(pathEntryFolder, id)
   try {
     return await fs.readFile(filePath)
   } catch (error) {
@@ -213,12 +289,17 @@ export const createCommit = async (
     )
   }
 
+  // validate all entries before writing any of them
+  commitDraft.entries.forEach((entryDraft) => validateEntryId(entryDraft.id))
+  const absolutePathEntryFolder = path.resolve(cwd, pathEntryFolder)
+  for (const entryDraft of commitDraft.entries) {
+    await assertPathHasNoSymbolicLinks(absolutePathEntryFolder, entryDraft.id)
+  }
+
   const touchedPaths: string[] = []
 
   for (const entryDraft of commitDraft.entries) {
-    assertEntryIdIsValid(entryDraft.id)
-
-    const entryPath = `${pathEntryFolder}/${entryDraft.id}${ENTRY_EXTENSION}`
+    const entryPath = getPathEntryFile(pathEntryFolder, entryDraft.id)
     const absolutePath = path.resolve(cwd, entryPath)
 
     if (entryDraft.deletion) {

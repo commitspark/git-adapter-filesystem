@@ -6,6 +6,7 @@ import {
   createGitFailedError,
   getGitCalls,
   mockGit,
+  mockSymbolicLinks,
   restoreEnvironment,
   setUpEnvironment,
 } from './system-mock'
@@ -215,7 +216,99 @@ describe('Writing', () => {
       expect(getGitCalls()).toHaveLength(2)
     })
 
-    it.each(['../escaped', 'nested/entry', '..\\escaped', 'a:b'])(
+    it('should write entries to subfolders', async () => {
+      mockCommittingGit(['commitspark/entries/blog/2024/a.yaml'], 'Test commit')
+
+      await createAdapter({}).createCommit(
+        createDraft([
+          {
+            id: 'blog/2024/a',
+            metadata: { type: 'A' },
+            data: {},
+            deletion: false,
+          },
+        ]),
+      )
+
+      expect(mockedFs.mkdir).toHaveBeenCalledWith(`${entryFolder}/blog/2024`, {
+        recursive: true,
+      })
+      expect(mockedFs.writeFile).toHaveBeenCalledWith(
+        `${entryFolder}/blog/2024/a.yaml`,
+        'metadata:\n  type: A\ndata: {}\n',
+        { encoding: 'utf8' },
+      )
+    })
+
+    it.each([
+      ['a folder', 'alias/a', `${entryFolder}/alias`, false],
+      ['the entry file', 'a', `${entryFolder}/a.yaml`, false],
+      ['the entry file to delete', 'a', `${entryFolder}/a.yaml`, true],
+    ])(
+      'should throw GitAdapterError with BAD_REQUEST when %s is a symbolic link',
+      async (_, id, symbolicLinkPath, deletion) => {
+        mockCommittingGit([], 'Test commit')
+        mockSymbolicLinks([symbolicLinkPath])
+
+        await expect(
+          createAdapter({}).createCommit(
+            createDraft([
+              {
+                id: id,
+                metadata: { type: 'A' },
+                data: {},
+                deletion: deletion,
+              },
+            ]),
+          ),
+        ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
+        expect(mockedFs.mkdir).not.toHaveBeenCalled()
+        expect(mockedFs.writeFile).not.toHaveBeenCalled()
+        expect(mockedFs.rm).not.toHaveBeenCalled()
+      },
+    )
+
+    it('should not write any entry when a later entry leads through a symbolic link', async () => {
+      mockCommittingGit([], 'Test commit')
+      mockSymbolicLinks([`${entryFolder}/alias`])
+
+      await expect(
+        createAdapter({}).createCommit(
+          createDraft([
+            { id: 'a', metadata: { type: 'A' }, data: {}, deletion: false },
+            {
+              id: 'alias/b',
+              metadata: { type: 'A' },
+              data: {},
+              deletion: false,
+            },
+          ]),
+        ),
+      ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
+      expect(mockedFs.writeFile).not.toHaveBeenCalled()
+    })
+
+    it('should not write any entry when a later entry ID is invalid', async () => {
+      mockCommittingGit([], 'Test commit')
+
+      await expect(
+        createAdapter({}).createCommit(
+          createDraft([
+            { id: 'a', metadata: { type: 'A' }, data: {}, deletion: false },
+            { id: '../b', metadata: { type: 'A' }, data: {}, deletion: false },
+          ]),
+        ),
+      ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
+      expect(mockedFs.writeFile).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      '../escaped',
+      'nested/../../escaped',
+      '..\\escaped',
+      'a:b',
+      '.hidden',
+    ])(
       'should throw GitAdapterError with BAD_REQUEST for entry ID "%s"',
       async (id) => {
         mockCommittingGit([], 'Test commit')
