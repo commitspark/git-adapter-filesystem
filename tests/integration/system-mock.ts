@@ -21,6 +21,8 @@ export const setUpEnvironment = (): void => {
   )
   ADAPTER_ENV_VARS.forEach((name) => delete process.env[name])
   process.env.GITHUB_WORKSPACE = WORKING_DIRECTORY
+  // paths contain no symbolic links unless a test mocks otherwise
+  mockSymbolicLinks([])
 }
 
 export const restoreEnvironment = (): void => {
@@ -95,4 +97,37 @@ export const mockReadFile = (files: Record<string, string | Error>): void => {
     }
     return options?.encoding ? content : Buffer.from(content, 'utf8')
   }) as unknown as typeof fs.readFile)
+}
+
+// folder contents keyed by absolute folder path; names ending with "/" are folders, names ending with "@" are symbolic
+// links, all other names are files; folders not listed fail with ENOENT
+export const mockReaddir = (
+  folders: Record<string, string[] | Error>,
+): void => {
+  jest.mocked(fs.readdir).mockImplementation((async (folderPath: string) => {
+    const names = folders[folderPath]
+    if (names === undefined) {
+      throw createFsError('ENOENT')
+    }
+    if (names instanceof Error) {
+      throw names
+    }
+    return names.map((name) => {
+      const isFolder = name.endsWith('/')
+      const isSymbolicLink = name.endsWith('@')
+      return {
+        name: isFolder || isSymbolicLink ? name.slice(0, -1) : name,
+        isFile: () => !isFolder && !isSymbolicLink,
+        isDirectory: () => isFolder,
+        isSymbolicLink: () => isSymbolicLink,
+      }
+    })
+  }) as unknown as typeof fs.readdir)
+}
+
+// the given absolute paths are symbolic links, all other paths exist and are no symbolic links
+export const mockSymbolicLinks = (symbolicLinkPaths: string[]): void => {
+  jest.mocked(fs.lstat).mockImplementation((async (filePath: string) => ({
+    isSymbolicLink: () => symbolicLinkPaths.includes(filePath),
+  })) as unknown as typeof fs.lstat)
 }

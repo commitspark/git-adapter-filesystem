@@ -5,7 +5,9 @@ import {
   createFsError,
   getGitCalls,
   mockGit,
+  mockReaddir,
   mockReadFile,
+  mockSymbolicLinks,
   restoreEnvironment,
   setUpEnvironment,
 } from './system-mock'
@@ -36,12 +38,9 @@ describe('Reading', () => {
 
   describe('getEntryHashes', () => {
     it('should return Git blob hashes of entry files only', async () => {
-      mockedFs.readdir.mockResolvedValue([
-        'a.yaml',
-        'b.yaml',
-        'README.md',
-        'c.yaml.bak',
-      ] as never)
+      mockReaddir({
+        [entryFolder]: ['a.yaml', 'b.yaml', 'README.md', 'c.yaml.bak'],
+      })
       mockReadFile({
         [`${entryFolder}/a.yaml`]: contentA,
         [`${entryFolder}/b.yaml`]: contentB,
@@ -53,7 +52,9 @@ describe('Reading', () => {
         { id: 'a', hash: hashA },
         { id: 'b', hash: hashB },
       ])
-      expect(mockedFs.readdir).toHaveBeenCalledWith(entryFolder)
+      expect(mockedFs.readdir).toHaveBeenCalledWith(entryFolder, {
+        withFileTypes: true,
+      })
       expect(mockedFs.readFile.mock.calls.map((call) => call[0])).toEqual([
         `${entryFolder}/a.yaml`,
         `${entryFolder}/b.yaml`,
@@ -61,7 +62,7 @@ describe('Reading', () => {
     })
 
     it('should read from a custom entry folder given with a trailing slash', async () => {
-      mockedFs.readdir.mockResolvedValue(['a.yaml'] as never)
+      mockReaddir({ '/repository/content/entries': ['a.yaml'] })
       mockReadFile({ '/repository/content/entries/a.yaml': contentA })
 
       await expect(
@@ -71,7 +72,60 @@ describe('Reading', () => {
       ).resolves.toEqual([{ id: 'a', hash: hashA }])
       expect(mockedFs.readdir).toHaveBeenCalledWith(
         '/repository/content/entries',
+        { withFileTypes: true },
       )
+    })
+
+    it('should return entry files in subfolders with their path as ID', async () => {
+      mockReaddir({
+        [entryFolder]: ['a.yaml', 'blog/'],
+        [`${entryFolder}/blog`]: ['b.yaml', '2024/'],
+        [`${entryFolder}/blog/2024`]: ['c.yaml'],
+      })
+      mockReadFile({
+        [`${entryFolder}/a.yaml`]: contentA,
+        [`${entryFolder}/blog/b.yaml`]: contentB,
+        [`${entryFolder}/blog/2024/c.yaml`]: contentA,
+      })
+
+      await expect(
+        createAdapter({}).getEntryHashes(commitHash),
+      ).resolves.toEqual([
+        { id: 'a', hash: hashA },
+        { id: 'blog/b', hash: hashB },
+        { id: 'blog/2024/c', hash: hashA },
+      ])
+    })
+
+    it('should ignore hidden files and folders and symbolic links', async () => {
+      mockReaddir({
+        [entryFolder]: [
+          '.a.yaml',
+          '.yaml',
+          '.hidden/',
+          'link.yaml@',
+          'linked-folder@',
+          'folder/',
+        ],
+        [`${entryFolder}/folder`]: ['.hidden/', 'b.yaml'],
+      })
+      mockReadFile({ [`${entryFolder}/folder/b.yaml`]: contentB })
+
+      await expect(
+        createAdapter({}).getEntryHashes(commitHash),
+      ).resolves.toEqual([{ id: 'folder/b', hash: hashB }])
+      expect(mockedFs.readdir.mock.calls.map((call) => call[0])).toEqual([
+        entryFolder,
+        `${entryFolder}/folder`,
+      ])
+    })
+
+    it('should throw GitAdapterError with INTERNAL_ERROR when a subfolder disappears while reading', async () => {
+      mockReaddir({ [entryFolder]: ['folder/'] })
+
+      await expect(
+        createAdapter({}).getEntryHashes(commitHash),
+      ).rejects.toMatchObject({ code: ErrorCode.INTERNAL_ERROR })
     })
 
     it('should throw GitAdapterError with BAD_REQUEST when commit is not checked out', async () => {
@@ -83,16 +137,18 @@ describe('Reading', () => {
     })
 
     it('should return no hashes when entry folder does not exist', async () => {
-      mockedFs.readdir.mockRejectedValue(createFsError('ENOENT'))
+      mockReaddir({})
 
       await expect(
         createAdapter({}).getEntryHashes(commitHash),
       ).resolves.toEqual([])
-      expect(mockedFs.readdir).toHaveBeenCalledWith(entryFolder)
+      expect(mockedFs.readdir).toHaveBeenCalledWith(entryFolder, {
+        withFileTypes: true,
+      })
     })
 
     it('should throw GitAdapterError with INTERNAL_ERROR when entry folder cannot be read', async () => {
-      mockedFs.readdir.mockRejectedValue(createFsError('EACCES'))
+      mockReaddir({ [entryFolder]: createFsError('EACCES') })
 
       await expect(
         createAdapter({}).getEntryHashes(commitHash),
@@ -100,7 +156,7 @@ describe('Reading', () => {
     })
 
     it('should throw GitAdapterError with INTERNAL_ERROR when entry file disappears while reading', async () => {
-      mockedFs.readdir.mockResolvedValue(['a.yaml'] as never)
+      mockReaddir({ [entryFolder]: ['a.yaml'] })
       mockReadFile({})
 
       await expect(
@@ -131,7 +187,67 @@ describe('Reading', () => {
       expect(mockedFs.readFile).not.toHaveBeenCalled()
     })
 
-    it.each(['../escaped', 'nested/entry', '..\\escaped'])(
+    it('should return entries in subfolders', async () => {
+      mockReadFile({ [`${entryFolder}/blog/a.yaml`]: contentA })
+
+      await expect(
+        createAdapter({}).getEntriesByIds(commitHash, ['blog/a']),
+      ).resolves.toEqual([
+        { id: 'blog/a', metadata: { type: 'A' }, data: { field: 'value' } },
+      ])
+    })
+
+    it('should inspect every path segment below the entry folder for symbolic links', async () => {
+      mockReadFile({ [`${entryFolder}/blog/2024/a.yaml`]: contentA })
+
+      await createAdapter({}).getEntriesByIds(commitHash, ['blog/2024/a'])
+
+      expect(mockedFs.lstat.mock.calls.map((call) => call[0])).toEqual([
+        `${entryFolder}/blog`,
+        `${entryFolder}/blog/2024`,
+        `${entryFolder}/blog/2024/a.yaml`,
+      ])
+    })
+
+    it.each([
+      ['a folder', 'alias/a', `${entryFolder}/alias`],
+      ['the entry file', 'a', `${entryFolder}/a.yaml`],
+    ])(
+      'should throw GitAdapterError with BAD_REQUEST when %s is a symbolic link',
+      async (_, id, symbolicLinkPath) => {
+        mockReadFile({})
+        mockSymbolicLinks([symbolicLinkPath])
+
+        await expect(
+          createAdapter({}).getEntriesByIds(commitHash, [id]),
+        ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
+        expect(mockedFs.readFile).not.toHaveBeenCalled()
+      },
+    )
+
+    it('should stop inspecting path segments below a missing folder', async () => {
+      mockReadFile({})
+      mockedFs.lstat.mockRejectedValue(createFsError('ENOENT'))
+
+      await expect(
+        createAdapter({}).getEntriesByIds(commitHash, ['missing/a']),
+      ).resolves.toEqual([])
+      expect(mockedFs.lstat.mock.calls.map((call) => call[0])).toEqual([
+        `${entryFolder}/missing`,
+      ])
+    })
+
+    it('should throw GitAdapterError with INTERNAL_ERROR when a path segment cannot be inspected', async () => {
+      mockReadFile({})
+      mockedFs.lstat.mockRejectedValue(createFsError('EACCES'))
+
+      await expect(
+        createAdapter({}).getEntriesByIds(commitHash, ['a']),
+      ).rejects.toMatchObject({ code: ErrorCode.INTERNAL_ERROR })
+      expect(mockedFs.readFile).not.toHaveBeenCalled()
+    })
+
+    it.each(['../escaped', 'nested/../../escaped', '..\\escaped', '.hidden'])(
       'should throw GitAdapterError with BAD_REQUEST for entry ID "%s"',
       async (id) => {
         mockReadFile({})

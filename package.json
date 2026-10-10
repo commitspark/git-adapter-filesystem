@@ -44,7 +44,7 @@
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\""
   },
   "dependencies": {
-    "@commitspark/git-adapter": "^2.0.0-beta.1",
+    "@commitspark/git-adapter": "^2.0.0-beta.2",
     "yaml": "^2.0.0"
   },
   "devDependencies": {
