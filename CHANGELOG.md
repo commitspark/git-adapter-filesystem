@@ -9,9 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Support entry IDs containing `/` as entries in subfolders of the entry folder, ignore hidden files and folders
+  (name starting with `.`) and symbolic links in the entry folder, and reject entry IDs that would lead outside of the
+  entry folder or through a symbolic link below it with `BAD_REQUEST`
+- Validate all entry IDs of a commit before writing any entry file
 - Publish separate type declarations for the ESM and CJS builds and reference them per condition in `exports` of
   `package.json`, so that TypeScript projects that import this package from ESM code with `moduleResolution` set to
   `node16` or `nodenext` receive correct types. Type declarations are no longer located in `dist/types`.
+- Upgrade to @commitspark/git-adapter 2.0.0-beta.2
 
 ## [2.0.0-beta.1] - 2026-09-24
 
