@@ -4,9 +4,13 @@ import { ErrorCode, GitAdapterError } from '@commitspark/git-adapter'
 
 const execFileAsync = promisify(execFile)
 
-export async function runGit(args: string[], cwd: string): Promise<string> {
+export async function runGit(
+  args: string[],
+  cwd: string,
+  env?: NodeJS.ProcessEnv,
+): Promise<string> {
   try {
-    return await execGit(args, cwd)
+    return await execGit(args, cwd, env)
   } catch (error) {
     const stderr =
       error && typeof error === 'object' && 'stderr' in error
@@ -72,7 +76,15 @@ function isGitBinaryMissing(error: unknown): boolean {
   )
 }
 
-async function execGit(args: string[], cwd: string): Promise<string> {
-  const { stdout } = await execFileAsync('git', args, { cwd })
+async function execGit(
+  args: string[],
+  cwd: string,
+  env?: NodeJS.ProcessEnv,
+): Promise<string> {
+  const { stdout } = await execFileAsync(
+    'git',
+    args,
+    env ? { cwd, env: { ...process.env, ...env } } : { cwd },
+  )
   return stdout.trim()
 }
