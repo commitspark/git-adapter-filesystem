@@ -30,23 +30,35 @@ If none of these lead to a result, an error is thrown.
 
 # Write support
 
-`createCommit()` writes entry changes to disk and commits them using the `git` binary. It is intended for demonstration
-purposes, not production use.
+`createCommit()` commits entry changes using the `git` binary. It is intended for demonstration purposes, not
+production use.
+
+## Commit precondition
+
+A commit is only added to the branch if the branch still points to `commitDraft.parentSha`; otherwise a
+`GitAdapterError` with code `CONFLICT` is thrown. This lets callers such as the Commitspark GraphQL API detect that
+another writer committed after they validated their change, and repeat the validation instead of overwriting changes
+they have not seen.
+
+To make this check atomic, the commit is assembled in a temporary index with Git plumbing commands
+(`read-tree`, `hash-object`, `update-index`, `write-tree`, `commit-tree`) and the branch is moved with
+`git update-ref <branch> <new> <parentSha>`, which only succeeds if the branch still points to `parentSha`. Only
+afterwards are the changed entry files written to the working tree and the index.
 
 ## Prerequisites and limitations
 
 - The `git` binary must be installed and included in `$PATH`
 - When committing to a branch, the branch must already be checked out in the filesystem
-- The current `HEAD` commit hash must match `commitDraft.parentSha`
-- Concurrent writes are not supported and lead to undefined behavior
-- If a commit fails while writing, the working tree is left in an undefined state
+- Since entries are read from the working tree, reads in other processes may briefly see the previous content of
+  changed entry files after a commit, until the working tree has been updated
+- If writing to the working tree fails after a commit, the working tree is left in an undefined state
 - `git` must have a usable `user.name`/`user.email` configuration present
 
 ## Additional notes
 
 - File modifications are constrained to those within `pathEntryFolder`
-- Only the files corresponding to mutated entries are staged and committed, unrelated changes in the filesystem are left
-  untouched
+- Only the files corresponding to mutated entries are committed and updated in the working tree and index, unrelated
+  changes in the filesystem and index are left untouched
 - Commits are only created locally and not pushed to any remote
 
 # Usage

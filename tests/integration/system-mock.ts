@@ -69,9 +69,20 @@ export const mockGit = (responses: GitResponses): void => {
 export const getGitCalls = (): string[][] =>
   jest.mocked(execFile).mock.calls.map((call) => {
     expect(call[0]).toEqual('git')
-    expect(call[2]).toEqual({ cwd: WORKING_DIRECTORY })
+    expect(call[2]).toMatchObject({ cwd: WORKING_DIRECTORY })
     return call[1] as string[]
   })
+
+// value of the given environment variable passed to each git invocation, in call order
+export const getGitCallEnvironmentValues = (
+  name: string,
+): (string | undefined)[] =>
+  jest
+    .mocked(execFile)
+    .mock.calls.map(
+      (call) =>
+        (call[2] as { env?: NodeJS.ProcessEnv } | undefined)?.env?.[name],
+    )
 
 export const createGitFailedError = (stderr: string): Error =>
   Object.assign(new Error('Command failed'), { code: 128, stderr: stderr })
