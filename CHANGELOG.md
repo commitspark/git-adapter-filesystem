@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   move the branch with `git update-ref`, which only succeeds if the branch still points to `parentSha`, otherwise
   throw `CONFLICT`; changes to entry files are only written to the working tree and index after the commit
 - Throw `BAD_REQUEST` instead of `INTERNAL_ERROR` when a commit draft leaves all files unchanged
+- Upgrade to @commitspark/git-adapter 2.0.0-beta.3
 
 ## [2.0.0-beta.2] - 2026-10-14
 
