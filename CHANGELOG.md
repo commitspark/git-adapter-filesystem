@@ -7,13 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Support commit message bodies, so that commits can explain a change in more detail than the single-line message
+
 ### Changed
 
 - Commit atomically with respect to `parentSha`: assemble commits with Git plumbing commands in a temporary index and
   move the branch with `git update-ref`, which only succeeds if the branch still points to `parentSha`, otherwise
   throw `CONFLICT`; changes to entry files are only written to the working tree and index after the commit
 - Throw `BAD_REQUEST` instead of `INTERNAL_ERROR` when a commit draft leaves all files unchanged
-- Append `body` of the commit draft to the commit message, separated by a blank line
 
 ## [2.0.0-beta.2] - 2026-10-14
 
