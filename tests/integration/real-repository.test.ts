@@ -92,6 +92,24 @@ describe('Writing to a real repository', () => {
     )
   })
 
+  it('should commit message and body separated by a blank line', async () => {
+    await createAdapter({}).createCommit({
+      ref: 'main',
+      parentSha: git('rev-parse', 'HEAD'),
+      message: 'Change entry',
+      body: 'Change details\n\nMore details',
+      entries: [{ id: 'a', metadata: { type: 'A' }, data: {}, deletion: true }],
+    })
+
+    expect(git('log', '-1', '--format=%s')).toEqual('Change entry')
+    expect(git('log', '-1', '--format=%b')).toEqual(
+      'Change details\n\nMore details',
+    )
+    expect(git('reflog', '-1', '--format=%gs', 'main')).toEqual(
+      'commit: Change entry',
+    )
+  })
+
   it('should throw GitAdapterError with CONFLICT and leave the branch unchanged when the parent is outdated', async () => {
     const parentSha = git('rev-parse', 'HEAD')
     writeFile('commitspark/entries/b.yaml', 'metadata:\n  type: B\ndata: {}\n')

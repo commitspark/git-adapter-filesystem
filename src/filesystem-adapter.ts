@@ -312,10 +312,15 @@ export const createCommit = async (
       : stringify({ metadata: entryDraft.metadata, data: entryDraft.data }),
   }))
 
+  // in Git commit messages, a blank line separates the body
+  const message =
+    commitDraft.body === undefined
+      ? commitDraft.message
+      : `${commitDraft.message}\n\n${commitDraft.body}`
   const newCommitHash = await createCommitObject(
     cwd,
     commitDraft.parentSha,
-    commitDraft.message,
+    message,
     changes,
   )
 
@@ -324,7 +329,7 @@ export const createCommit = async (
       [
         'update-ref',
         '-m',
-        `commit: ${commitDraft.message.split('\n')[0]}`,
+        `commit: ${commitDraft.message}`,
         `refs/heads/${commitDraft.ref}`,
         newCommitHash,
         commitDraft.parentSha,

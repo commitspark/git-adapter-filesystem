@@ -29,6 +29,7 @@ describe('Writing', () => {
     writtenPaths?: string[]
     deletedPaths?: string[]
     message?: string
+    body?: string
     treeHash?: string
     headAfterCheck?: string
     updateRefResponse?: string | Error
@@ -49,6 +50,7 @@ describe('Writing', () => {
     writtenPaths = [],
     deletedPaths = [],
     message = 'Test commit',
+    body,
     treeHash = newTreeHash,
     headAfterCheck = parentCommitHash,
     updateRefResponse = '',
@@ -73,13 +75,18 @@ describe('Writing', () => {
       [['update-index', '--force-remove', '--', ...deletedPaths].join(' ')]: '',
       'write-tree': treeHash,
       [`rev-parse ${parentCommitHash}^{tree}`]: parentTreeHash,
-      [['commit-tree', treeHash, '-p', parentCommitHash, '-m', message].join(
-        ' ',
-      )]: commitTreeResponse,
+      [[
+        'commit-tree',
+        treeHash,
+        '-p',
+        parentCommitHash,
+        '-m',
+        body === undefined ? message : `${message}\n\n${body}`,
+      ].join(' ')]: commitTreeResponse,
       [[
         'update-ref',
         '-m',
-        `commit: ${message.split('\n')[0]}`,
+        `commit: ${message}`,
         'refs/heads/main',
         newCommitHash,
         parentCommitHash,
@@ -92,10 +99,12 @@ describe('Writing', () => {
   const createDraft = (
     entries: CommitDraft['entries'],
     message: string = 'Test commit',
+    body?: string,
   ): CommitDraft => ({
     ref: 'main',
     parentSha: parentCommitHash,
     message: message,
+    body: body,
     entries: entries,
   })
 
@@ -240,20 +249,29 @@ describe('Writing', () => {
       ])
     })
 
-    it('should use only the first line of a multi-line commit message for the reflog', async () => {
-      const message = 'Headline\n\nBody'
+    it('should commit message and body separated by a blank line and use only the message for the reflog', async () => {
       mockCommittingGit({
         writtenPaths: ['commitspark/entries/a.yaml'],
-        message: message,
+        message: 'Headline',
+        body: 'Body',
       })
 
       await createAdapter({}).createCommit(
         createDraft(
           [{ id: 'a', metadata: { type: 'A' }, data: {}, deletion: false }],
-          message,
+          'Headline',
+          'Body',
         ),
       )
 
+      expect(getGitCalls()).toContainEqual([
+        'commit-tree',
+        newTreeHash,
+        '-p',
+        parentCommitHash,
+        '-m',
+        'Headline\n\nBody',
+      ])
       expect(getGitCalls()).toContainEqual([
         'update-ref',
         '-m',
