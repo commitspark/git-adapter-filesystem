@@ -92,6 +92,40 @@ describe('Writing to a real repository', () => {
     )
   })
 
+  it('should commit the schema of a commit draft together with entry changes', async () => {
+    writeFile('commitspark/schema/schema.graphql', 'type A { a: String }\n')
+    git('add', '.')
+    git('commit', '--quiet', '--message=Add schema')
+
+    await createAdapter({}).createCommit({
+      ref: 'main',
+      parentSha: git('rev-parse', 'HEAD'),
+      message: 'Rename field',
+      schema: 'type A { b: String }\n',
+      entries: [
+        {
+          id: 'a',
+          metadata: { type: 'A' },
+          data: { b: 'value' },
+          deletion: false,
+        },
+      ],
+    })
+
+    expect(
+      git('diff-tree', '--no-commit-id', '--name-status', '-r', 'HEAD'),
+    ).toEqual(
+      [
+        'M\tcommitspark/entries/a.yaml',
+        'M\tcommitspark/schema/schema.graphql',
+      ].join('\n'),
+    )
+    expect(git('show', 'HEAD:commitspark/schema/schema.graphql')).toEqual(
+      'type A { b: String }',
+    )
+    expect(git('status', '--porcelain')).toEqual('')
+  })
+
   it('should commit message and body separated by a blank line', async () => {
     await createAdapter({}).createCommit({
       ref: 'main',

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Write field `schema` of a commit draft to the schema file in the same commit as the entries, so that schema and
+  entries can be changed together
+
 ## [2.0.0-beta.3] - 2026-11-11
 
 ### Added

@@ -265,7 +265,8 @@ export const getLatestCommitHash = async (
   return currentCommitHash
 }
 
-interface EntryFileChange {
+// change of an entry file or of the schema file
+interface FileChange {
   path: string
   // undefined for deletions
   content: string | undefined
@@ -277,7 +278,7 @@ interface EntryFileChange {
  * in a temporary index with Git plumbing commands and the branch is moved with `git update-ref`, which compares the
  * expected old value atomically, so that a commit by another process in the meantime leads to `CONFLICT` instead of
  * a commit on top of a state the caller did not validate. The working tree and index are only updated for the
- * changed entry files after the branch was moved.
+ * changed files after the branch was moved.
  */
 export const createCommit = async (
   gitRepositoryOptions: FilesystemRepositoryOptions,
@@ -305,12 +306,18 @@ export const createCommit = async (
     await assertPathHasNoSymbolicLinks(absolutePathEntryFolder, entryDraft.id)
   }
 
-  const changes: EntryFileChange[] = commitDraft.entries.map((entryDraft) => ({
+  const changes: FileChange[] = commitDraft.entries.map((entryDraft) => ({
     path: getPathEntryFile(pathEntryFolder, entryDraft.id),
     content: entryDraft.deletion
       ? undefined
       : stringify({ metadata: entryDraft.metadata, data: entryDraft.data }),
   }))
+  if (commitDraft.schema !== undefined) {
+    changes.push({
+      path: getPathSchema(gitRepositoryOptions),
+      content: commitDraft.schema,
+    })
+  }
 
   // in Git commit messages, a blank line separates the body
   const message =
@@ -366,7 +373,7 @@ const createCommitObject = async (
   cwd: string,
   parentSha: string,
   message: string,
-  changes: EntryFileChange[],
+  changes: FileChange[],
 ): Promise<string> => {
   const temporaryFolder = await fs.mkdtemp(
     path.join(os.tmpdir(), 'commitspark-'),
@@ -429,7 +436,7 @@ const createCommitObject = async (
     if (treeHash === parentTreeHash) {
       throw new GitAdapterError(
         ErrorCode.BAD_REQUEST,
-        'Commit draft contains no effective entry changes',
+        'Commit draft contains no effective changes',
       )
     }
 
@@ -443,11 +450,11 @@ const createCommitObject = async (
   }
 }
 
-// brings working tree and index in line with the new branch head for the changed entry files, leaving all other
+// brings working tree and index in line with the new branch head for the changed files, leaving all other
 // files untouched
 const updateWorkingTree = async (
   cwd: string,
-  changes: EntryFileChange[],
+  changes: FileChange[],
 ): Promise<void> => {
   for (const change of changes) {
     const absolutePath = path.resolve(cwd, change.path)
