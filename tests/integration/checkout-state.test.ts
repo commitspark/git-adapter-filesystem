@@ -3,9 +3,9 @@ import { execFile } from 'child_process'
 import { createAdapter } from '../../src'
 import {
   createGitFailedError,
-  createGitNotFoundError,
   getGitCalls,
   mockGit,
+  mockMissingGit,
   restoreEnvironment,
   setUpEnvironment,
 } from './system-mock'
@@ -26,28 +26,21 @@ describe('Checkout state', () => {
   })
 
   describe('getLatestCommitHash', () => {
-    it('should return the checked out commit hash for the checked out branch', async () => {
-      mockGit({
-        'symbolic-ref --short HEAD': 'main',
-        'rev-parse HEAD': commitHash,
-      })
+    it('should resolve the ref with git rev-parse', async () => {
+      mockGit({ 'rev-parse --verify --quiet main^{commit}': commitHash })
 
       await expect(
         createAdapter({}).getLatestCommitHash('main'),
       ).resolves.toEqual(commitHash)
       expect(getGitCalls()).toEqual([
-        ['symbolic-ref', '--short', 'HEAD'],
-        ['rev-parse', 'HEAD'],
+        ['rev-parse', '--verify', '--quiet', 'main^{commit}'],
       ])
     })
 
     it('should run git in the CI working directory', async () => {
       delete process.env.GITHUB_WORKSPACE
       process.env.CI_PROJECT_DIR = '/gitlab/project'
-      mockGit({
-        'symbolic-ref --short HEAD': 'main',
-        'rev-parse HEAD': commitHash,
-      })
+      mockGit({ 'rev-parse --verify --quiet main^{commit}': commitHash })
 
       await createAdapter({}).getLatestCommitHash('main')
 
@@ -56,50 +49,29 @@ describe('Checkout state', () => {
       })
     })
 
-    it('should throw GitAdapterError with BAD_REQUEST when ref is not checked out', async () => {
+    it('should throw GitAdapterError with NOT_FOUND when the ref does not resolve to a commit', async () => {
       mockGit({
-        'symbolic-ref --short HEAD': 'main',
-        'rev-parse HEAD': commitHash,
+        'rev-parse --verify --quiet other^{commit}': createGitFailedError(''),
       })
 
       await expect(
         createAdapter({}).getLatestCommitHash('other'),
-      ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
+      ).rejects.toMatchObject({ code: ErrorCode.NOT_FOUND })
     })
 
-    it('should throw GitAdapterError with BAD_REQUEST when branch has no commits', async () => {
-      mockGit({
-        'symbolic-ref --short HEAD': 'main',
-        'rev-parse HEAD': createGitFailedError(
-          "fatal: ambiguous argument 'HEAD'",
-        ),
-      })
+    it('should throw GitAdapterError with BAD_REQUEST for a ref that would be an option', async () => {
+      mockGit({})
 
       await expect(
-        createAdapter({}).getLatestCommitHash('main'),
+        createAdapter({}).getLatestCommitHash('--all'),
       ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
-    })
-
-    it('should throw GitAdapterError with INTERNAL_ERROR when HEAD is detached', async () => {
-      mockGit({
-        'symbolic-ref --short HEAD': createGitFailedError(
-          'fatal: ref HEAD is not a symbolic ref',
-        ),
-        'rev-parse HEAD': commitHash,
-      })
-
-      await expect(
-        createAdapter({}).getLatestCommitHash('main'),
-      ).rejects.toMatchObject({ code: ErrorCode.INTERNAL_ERROR })
+      expect(getGitCalls()).toEqual([])
     })
   })
 
   describe('without git binary', () => {
     beforeEach(() => {
-      mockGit({
-        'symbolic-ref --short HEAD': createGitNotFoundError(),
-        'rev-parse HEAD': createGitNotFoundError(),
-      })
+      mockMissingGit()
     })
 
     it('should determine branch and commit from GitHub Actions environment variables', async () => {
@@ -118,6 +90,23 @@ describe('Checkout state', () => {
       await expect(
         createAdapter({}).getLatestCommitHash('main'),
       ).resolves.toEqual(commitHash)
+    })
+
+    it('should resolve the checked out commit hash to itself', async () => {
+      process.env.GITHUB_SHA = commitHash
+
+      await expect(
+        createAdapter({}).getLatestCommitHash(commitHash),
+      ).resolves.toEqual(commitHash)
+    })
+
+    it('should throw GitAdapterError with BAD_REQUEST for a ref that is not checked out', async () => {
+      process.env.GITHUB_REF_NAME = 'main'
+      process.env.GITHUB_SHA = commitHash
+
+      await expect(
+        createAdapter({}).getLatestCommitHash('other'),
+      ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
     })
 
     it('should throw GitAdapterError with INTERNAL_ERROR when branch cannot be determined', async () => {

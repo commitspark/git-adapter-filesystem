@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Write field `schema` of a commit draft to the schema file in the same commit as the entries, so that schema and
   entries can be changed together
 
+### Changed
+
+- Read entries and schema of the given commit from the Git object database instead of from the working tree, so that
+  any branch, tag or commit can be read, also with a detached HEAD as in pull request checkouts of CI/CD pipelines,
+  and so that uncommitted changes are not returned as content of a commit; without `git` binary, only the checked out
+  commit can be read from the working tree as before
+
 ## [2.0.0-beta.3] - 2026-11-11
 
 ### Added

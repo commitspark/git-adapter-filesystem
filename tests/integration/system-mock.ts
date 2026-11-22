@@ -84,10 +84,22 @@ export const getGitCallEnvironmentValues = (
         (call[2] as { env?: NodeJS.ProcessEnv } | undefined)?.env?.[name],
     )
 
+// every git invocation fails as if the git binary were not installed
+export const mockMissingGit = (): void => {
+  jest
+    .mocked(execFile)
+    .mockImplementation(((
+      _file: string,
+      _args: string[],
+      _options: unknown,
+      callback: (error: Error | null) => void,
+    ) => callback(createGitNotFoundError())) as unknown as typeof execFile)
+}
+
 export const createGitFailedError = (stderr: string): Error =>
   Object.assign(new Error('Command failed'), { code: 128, stderr: stderr })
 
-export const createGitNotFoundError = (): Error =>
+const createGitNotFoundError = (): Error =>
   Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' })
 
 export const createFsError = (code: string): NodeJS.ErrnoException =>

@@ -5,8 +5,7 @@
 This repository holds code for a [Commitspark Git adapter](https://github.com/commitspark/git-adapter) that provides
 access to Git repositories checked out in the local filesystem.
 
-This adapter is primarily meant to be used in read-only CI/CD pipeline scenarios where a single Git revision of entries
-is already checked out in the filesystem.
+This adapter is primarily meant to be used in read-only CI/CD pipeline scenarios, e.g. to validate a repository.
 
 Write support is present mostly for demonstration purposes and comes with several limitations.
 
@@ -20,13 +19,16 @@ The current working directory for file system access is determined by sequential
 
 # Read support
 
-The currently checked out branch and commit hash are determined in the following order:
+With the `git` binary, reads return the state of any commit from the Git object database, and `ref` can be any branch
+name, tag name or commit hash, also with a detached HEAD. Uncommitted changes in the working tree are not read.
 
-1. Output of querying with the `git` binary, if present
-2. GitHub `GITHUB_SHA` and `GITHUB_REF_NAME` environment variables
-3. GitLab `CI_COMMIT_SHA` and `CI_COMMIT_REF_NAME` environment variables
+Without the `git` binary, only the checked out commit can be read from the working tree, which must not contain
+uncommitted changes. Branch and commit are then determined from the following environment variables:
 
-If none of these lead to a result, an error is thrown.
+1. GitHub `GITHUB_REF_NAME` and `GITHUB_SHA`
+2. GitLab `CI_COMMIT_REF_NAME` and `CI_COMMIT_SHA`
+
+If neither leads to a result, an error is thrown.
 
 # Write support
 
@@ -49,8 +51,6 @@ afterwards are the changed entry files written to the working tree and the index
 
 - The `git` binary must be installed and included in `$PATH`
 - When committing to a branch, the branch must already be checked out in the filesystem
-- Since entries are read from the working tree, reads in other processes may briefly see the previous content of
-  changed entry files after a commit, until the working tree has been updated
 - If writing to the working tree fails after a commit, the working tree is left in an undefined state
 - `git` must have a usable `user.name`/`user.email` configuration present
 

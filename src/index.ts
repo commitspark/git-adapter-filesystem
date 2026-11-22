@@ -29,7 +29,8 @@ export function createAdapter(
       getEntryHashes(gitRepositoryOptions, ...args),
     getEntriesByIds: (...args): Promise<Entry[]> =>
       getEntriesByIds(gitRepositoryOptions, ...args),
-    getSchema: (): Promise<string> => getSchema(gitRepositoryOptions),
+    getSchema: (commitHash: string): Promise<string> =>
+      getSchema(gitRepositoryOptions, commitHash),
     getLatestCommitHash: (ref: string) =>
       getLatestCommitHash(gitRepositoryOptions, ref),
     createCommit: (commitDraft: CommitDraft) =>

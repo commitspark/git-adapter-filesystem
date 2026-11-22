@@ -16,14 +16,28 @@ import * as path from 'path'
 import { parse, stringify } from 'yaml'
 import { getPathEntryFolder, getPathSchema } from './path-factory.ts'
 import { ENTRY_EXTENSION } from './types.ts'
-import { getCurrentBranch, getCurrentCommitHash, runGit } from './git-cli.ts'
+import {
+  execGit,
+  getCurrentBranch,
+  getCurrentCommitHash,
+  isGitBinaryMissing,
+  runGit,
+} from './git-cli.ts'
+import { listCommitFiles, readBlobs } from './git-objects.ts'
 
 export const getEntryHashes = async (
   gitRepositoryOptions: FilesystemRepositoryOptions,
   commitHash: string,
 ): Promise<EntryHash[]> => {
   const cwd = getWorkingDirectory()
-  await assertCommitIsCheckedOut(cwd, commitHash)
+  if ((await getReadSource(cwd, commitHash)) === 'commit') {
+    const entryFiles = await listCommitEntryFiles(
+      cwd,
+      commitHash,
+      gitRepositoryOptions,
+    )
+    return [...entryFiles].map(([id, blobHash]) => ({ id: id, hash: blobHash }))
+  }
 
   const pathEntryFolder = path.resolve(
     cwd,
@@ -60,8 +74,22 @@ export const getEntriesByIds = async (
   ids: string[],
 ): Promise<Entry[]> => {
   const cwd = getWorkingDirectory()
-  await assertCommitIsCheckedOut(cwd, commitHash)
+  const readSource = await getReadSource(cwd, commitHash)
   ids.forEach(validateEntryId)
+
+  if (readSource === 'commit') {
+    const entryFiles = await listCommitEntryFiles(
+      cwd,
+      commitHash,
+      gitRepositoryOptions,
+    )
+    const existingIds = ids.filter((id) => entryFiles.has(id))
+    const contents = await readBlobs(
+      cwd,
+      existingIds.map((id) => entryFiles.get(id) as string),
+    )
+    return existingIds.map((id, index) => parseEntry(id, contents[index]))
+  }
 
   const pathEntryFolder = path.resolve(
     cwd,
@@ -74,19 +102,53 @@ export const getEntriesByIds = async (
   const entries = await Promise.all(
     ids.map(async (id): Promise<Entry | undefined> => {
       const fileContent = await readEntryFile(pathEntryFolder, id)
-      if (fileContent === undefined) {
-        return undefined
-      }
-      const content = parse(fileContent.toString('utf8'))
-      return {
-        id: id,
-        metadata: content.metadata,
-        data: content.data,
-      }
+      return fileContent === undefined ? undefined : parseEntry(id, fileContent)
     }),
   )
 
   return entries.filter((entry) => entry !== undefined)
+}
+
+const parseEntry = (id: string, fileContent: Buffer): Entry => {
+  const content = parse(fileContent.toString('utf8'))
+  return {
+    id: id,
+    metadata: content.metadata,
+    data: content.data,
+  }
+}
+
+/**
+ * Where reads come from: the given commit in the Git object database, or the working tree if the git binary is
+ * missing. The working tree is only read if it holds the given commit according to the environment of the CI/CD
+ * pipeline, as reads must return the state of exactly the given commit.
+ */
+type ReadSource = 'commit' | 'working tree'
+
+const getReadSource = async (
+  cwd: string,
+  commitHash: string,
+): Promise<ReadSource> => {
+  // hashes are passed to git as arguments, so that anything else, e.g. an option, is rejected
+  if (!/^[0-9a-f]+$/i.test(commitHash)) {
+    throw new GitAdapterError(
+      ErrorCode.BAD_REQUEST,
+      `"${commitHash}" is not a commit hash`,
+    )
+  }
+  try {
+    await execGit(['cat-file', '-e', `${commitHash}^{commit}`], cwd)
+    return 'commit'
+  } catch (error) {
+    if (!isGitBinaryMissing(error)) {
+      throw new GitAdapterError(
+        ErrorCode.NOT_FOUND,
+        `No commit "${commitHash}" found`,
+      )
+    }
+  }
+  await assertCommitIsCheckedOut(cwd, commitHash)
+  return 'working tree'
 }
 
 const assertCommitIsCheckedOut = async (
@@ -97,10 +159,40 @@ const assertCommitIsCheckedOut = async (
   if (commitHash !== currentCommitHash) {
     throw new GitAdapterError(
       ErrorCode.BAD_REQUEST,
-      `This adapter does not support navigating the git history; current commit hash is ` +
-        `"${currentCommitHash}" but "${commitHash}" was requested`,
+      `Without git binary, only the checked out commit "${currentCommitHash}" can be read, but ` +
+        `"${commitHash}" was requested`,
     )
   }
+}
+
+// returns the blob hash of each entry file of a commit by entry ID, following the same rules as the working tree
+// listing: hidden files and folders are skipped and symbolic links are no entries
+const listCommitEntryFiles = async (
+  cwd: string,
+  commitHash: string,
+  gitRepositoryOptions: FilesystemRepositoryOptions,
+): Promise<Map<string, string>> => {
+  const pathEntryFolder = path.posix.normalize(
+    getPathEntryFolder(gitRepositoryOptions),
+  )
+  const files = await listCommitFiles(cwd, commitHash, pathEntryFolder)
+  const entryFiles = new Map<string, string>()
+  for (const file of files) {
+    if (!file.path.startsWith(`${pathEntryFolder}/`)) {
+      continue
+    }
+    const relativePath = file.path.substring(pathEntryFolder.length + 1)
+    if (
+      relativePath.endsWith(ENTRY_EXTENSION) &&
+      !relativePath.split('/').some((segment) => segment.startsWith('.'))
+    ) {
+      entryFiles.set(
+        relativePath.substring(0, relativePath.length - ENTRY_EXTENSION.length),
+        file.blobHash,
+      )
+    }
+  }
+  return entryFiles
 }
 
 // returns the paths of all entry files below the given folder relative to the entry folder, using "/" as separator;
@@ -223,10 +315,26 @@ const createGitBlobHash = (fileContent: Buffer): string =>
 
 export const getSchema = async (
   gitRepositoryOptions: FilesystemRepositoryOptions,
+  commitHash: string,
 ): Promise<string> => {
   const cwd = getWorkingDirectory()
-  const schemaFilePath = path.resolve(cwd, getPathSchema(gitRepositoryOptions))
+  const pathSchema = path.posix.normalize(getPathSchema(gitRepositoryOptions))
 
+  if ((await getReadSource(cwd, commitHash)) === 'commit') {
+    const schemaFile = (
+      await listCommitFiles(cwd, commitHash, pathSchema)
+    ).find((file) => file.path === pathSchema)
+    if (schemaFile === undefined) {
+      throw new GitAdapterError(
+        ErrorCode.INTERNAL_ERROR,
+        `Schema file "${pathSchema}" does not exist in commit "${commitHash}"`,
+      )
+    }
+    const [content] = await readBlobs(cwd, [schemaFile.blobHash])
+    return content.toString('utf8')
+  }
+
+  const schemaFilePath = path.resolve(cwd, pathSchema)
   try {
     return await fs.readFile(schemaFilePath, {
       encoding: 'utf-8',
@@ -239,29 +347,47 @@ export const getSchema = async (
   }
 }
 
+/**
+ * Resolves a branch name, tag name or commit hash with `git rev-parse`. Without git binary, only the checked out branch
+ * and commit can be resolved, using the environment of the CI/CD pipeline.
+ */
 export const getLatestCommitHash = async (
   gitRepositoryOptions: FilesystemRepositoryOptions,
   ref: string,
 ): Promise<string> => {
   const cwd = getWorkingDirectory()
-  const currentBranch = await getCurrentBranch(cwd)
+  // refs are passed to git as arguments, so that an option is rejected
+  if (ref.startsWith('-')) {
+    throw new GitAdapterError(ErrorCode.BAD_REQUEST, `Invalid ref "${ref}"`)
+  }
 
-  if (ref !== currentBranch) {
-    throw new GitAdapterError(
-      ErrorCode.BAD_REQUEST,
-      `Requested commit ref "${ref}" does not match currently checked out branch ` +
-        `"${currentBranch}"; this adapter requires the target branch to already be checked out`,
+  try {
+    return await execGit(
+      ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`],
+      cwd,
     )
+  } catch (error) {
+    if (!isGitBinaryMissing(error)) {
+      throw new GitAdapterError(
+        ErrorCode.NOT_FOUND,
+        `No commit found for ref "${ref}"`,
+      )
+    }
   }
 
   const currentCommitHash = await getCurrentCommitHash(cwd)
+  if (ref !== currentCommitHash && ref !== (await getCurrentBranch(cwd))) {
+    throw new GitAdapterError(
+      ErrorCode.BAD_REQUEST,
+      `Without git binary, only the checked out branch or commit can be read, but "${ref}" was requested`,
+    )
+  }
   if (!currentCommitHash) {
     throw new GitAdapterError(
       ErrorCode.BAD_REQUEST,
       `Requested commit ref "${ref}" does not have any existing commits`,
     )
   }
-
   return currentCommitHash
 }
 

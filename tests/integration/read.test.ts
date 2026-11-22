@@ -4,7 +4,7 @@ import { createAdapter } from '../../src'
 import {
   createFsError,
   getGitCalls,
-  mockGit,
+  mockMissingGit,
   mockReaddir,
   mockReadFile,
   mockSymbolicLinks,
@@ -15,7 +15,9 @@ import {
 jest.mock('child_process', () => ({ execFile: jest.fn() }))
 jest.mock('fs/promises')
 
-describe('Reading', () => {
+// reads from the working tree, which only happens without git binary; reads with git are tested in
+// real-repository-read.test.ts
+describe('Reading without git binary', () => {
   const commitHash = 'abc123'
   const entryFolder = '/repository/commitspark/entries'
   const contentA = 'metadata:\n  type: A\ndata:\n  field: value\n'
@@ -29,7 +31,8 @@ describe('Reading', () => {
   beforeEach(() => {
     jest.resetAllMocks()
     setUpEnvironment()
-    mockGit({ 'rev-parse HEAD': commitHash })
+    mockMissingGit()
+    process.env.GITHUB_SHA = commitHash
   })
 
   afterEach(() => {
@@ -132,7 +135,10 @@ describe('Reading', () => {
       await expect(
         createAdapter({}).getEntryHashes('def456'),
       ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
-      expect(getGitCalls()).toEqual([['rev-parse', 'HEAD']])
+      expect(getGitCalls()).toEqual([
+        ['cat-file', '-e', 'def456^{commit}'],
+        ['rev-parse', 'HEAD'],
+      ])
       expect(mockedFs.readdir).not.toHaveBeenCalled()
     })
 

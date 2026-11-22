@@ -67,7 +67,7 @@ export async function getCurrentCommitHash(
   }
 }
 
-function isGitBinaryMissing(error: unknown): boolean {
+export function isGitBinaryMissing(error: unknown): boolean {
   return (
     typeof error === 'object' &&
     error !== null &&
@@ -76,7 +76,8 @@ function isGitBinaryMissing(error: unknown): boolean {
   )
 }
 
-async function execGit(
+// runs git and returns its trimmed standard output; errors are passed on unchanged, e.g. to detect a missing git binary
+export async function execGit(
   args: string[],
   cwd: string,
   env?: NodeJS.ProcessEnv,
