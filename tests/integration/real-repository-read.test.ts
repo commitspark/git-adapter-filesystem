@@ -4,6 +4,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { createAdapter } from '../../src'
+import { readBlobs } from '../../src/git-objects'
 
 // runs against a real Git repository in a temporary folder to verify that reads return the state of the given commit
 describe('Reading from a real repository', () => {
@@ -221,13 +222,153 @@ describe('Reading from a real repository', () => {
       ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
     })
 
-    it('should throw GitAdapterError with INTERNAL_ERROR when the commit has no schema file', async () => {
+    it('should throw GitAdapterError with NOT_FOUND when the commit has no schema file', async () => {
       writeFile('commitspark/entries/a.yaml', entry('A', 'one'))
       const commit = commitAll('First')
 
       await expect(createAdapter({}).getSchema(commit)).rejects.toMatchObject({
-        code: ErrorCode.INTERNAL_ERROR,
+        code: ErrorCode.NOT_FOUND,
       })
+    })
+  })
+
+  describe('file contents and names', () => {
+    it('should read several entries with multibyte content and special file names in one call', async () => {
+      const ids = ['with space', 'ümlaut/ä', 'emoji 😀', 'plain']
+      ids.forEach((id, index) =>
+        writeFile(
+          `commitspark/entries/${id}.yaml`,
+          entry('A', `"äöü 😀 ${index}"`),
+        ),
+      )
+      const commit = commitAll('Special names')
+
+      const entries = await createAdapter({}).getEntriesByIds(commit, ids)
+
+      expect(entries).toEqual(
+        ids.map((id, index) => ({
+          id: id,
+          metadata: { type: 'A' },
+          data: { field: `äöü 😀 ${index}` },
+        })),
+      )
+    })
+
+    it('should list an entry file whose name is no valid entry ID, so that callers can report it', async () => {
+      writeFile('commitspark/entries/new\nline.yaml', entry('A', 'one'))
+      const commit = commitAll('Invalid name')
+
+      const hashes = await createAdapter({}).getEntryHashes(commit)
+
+      expect(hashes.map((entryHash) => entryHash.id)).toEqual(['new\nline'])
+    })
+
+    it.each([
+      ['an empty file', '', 'does not contain a YAML mapping'],
+      ['a list', '- a\n- b\n', 'does not contain a YAML mapping'],
+      ['invalid YAML', 'metadata: [unclosed\n', 'is no valid YAML'],
+    ])(
+      'should throw GitAdapterError with INTERNAL_ERROR for an entry file with %s',
+      async (_description, content, message) => {
+        writeFile('commitspark/entries/a.yaml', content)
+        const commit = commitAll('Broken entry')
+
+        await expect(
+          createAdapter({}).getEntriesByIds(commit, ['a']),
+        ).rejects.toMatchObject({
+          code: ErrorCode.INTERNAL_ERROR,
+          message: expect.stringContaining(message),
+        })
+      },
+    )
+
+    it('should throw GitAdapterError with INTERNAL_ERROR for a missing blob', async () => {
+      writeFile('commitspark/entries/a.yaml', entry('A', 'one'))
+      commitAll('First')
+
+      await expect(
+        readBlobs(repositoryPath, ['0123456789abcdef0123456789abcdef01234567']),
+      ).rejects.toMatchObject({ code: ErrorCode.INTERNAL_ERROR })
+    })
+  })
+
+  describe('setup', () => {
+    it('should throw GitAdapterError with INTERNAL_ERROR when the working directory is a subfolder of the repository', async () => {
+      writeFile('pkg/commitspark/entries/a.yaml', entry('A', 'one'))
+      const commit = commitAll('Monorepo')
+      process.env.GITHUB_WORKSPACE = path.join(repositoryPath, 'pkg')
+
+      await expect(
+        createAdapter({}).getLatestCommitHash('main'),
+      ).rejects.toMatchObject({
+        code: ErrorCode.INTERNAL_ERROR,
+        message: expect.stringContaining('must be the top-level folder'),
+      })
+      await expect(
+        createAdapter({}).getEntryHashes(commit),
+      ).rejects.toMatchObject({ code: ErrorCode.INTERNAL_ERROR })
+    })
+
+    it('should throw GitAdapterError with INTERNAL_ERROR including the message of git when the working directory is no repository', async () => {
+      const folder = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'commitspark-test-folder-'),
+      )
+      process.env.GITHUB_WORKSPACE = folder
+      try {
+        await expect(
+          createAdapter({}).getLatestCommitHash('main'),
+        ).rejects.toMatchObject({
+          code: ErrorCode.INTERNAL_ERROR,
+          message: expect.stringContaining('not a git repository'),
+        })
+      } finally {
+        fs.rmSync(folder, { recursive: true, force: true })
+      }
+    })
+
+    it.each([
+      ['an absolute path', '/commitspark/entries'],
+      ['the top-level folder', '.'],
+      ['an empty path', ''],
+      ['a path outside the repository', '../entries'],
+      ['backslashes', 'commitspark\\entries'],
+    ])(
+      'should throw GitAdapterError with INTERNAL_ERROR when creating the adapter with %s as entry folder',
+      (_description, pathEntryFolder) => {
+        expect(() => createAdapter({ pathEntryFolder })).toThrow(
+          expect.objectContaining({ code: ErrorCode.INTERNAL_ERROR }),
+        )
+      },
+    )
+
+    it('should throw GitAdapterError with INTERNAL_ERROR when creating the adapter with an invalid schema path', () => {
+      expect(() =>
+        createAdapter({ pathSchemaFile: '/schema.graphql' }),
+      ).toThrow(expect.objectContaining({ code: ErrorCode.INTERNAL_ERROR }))
+    })
+
+    it('should normalize a leading "./" and trailing slashes of path options', async () => {
+      writeFile('content/entries/a.yaml', entry('A', 'one'))
+      const commit = commitAll('Custom folder')
+
+      await expect(
+        createAdapter({
+          pathEntryFolder: './content/entries//',
+        }).getEntryHashes(commit),
+      ).resolves.toEqual([
+        { id: 'a', hash: git('rev-parse', `${commit}:content/entries/a.yaml`) },
+      ])
+    })
+
+    it('should resolve revision expressions as refs', async () => {
+      writeFile('commitspark/entries/a.yaml', entry('A', 'one'))
+      const firstCommit = commitAll('First')
+      writeFile('commitspark/entries/a.yaml', entry('A', 'two'))
+      commitAll('Second')
+
+      await expect(
+        createAdapter({}).getLatestCommitHash('HEAD~1'),
+      ).resolves.toEqual(firstCommit)
     })
   })
 })

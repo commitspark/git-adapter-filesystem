@@ -27,12 +27,16 @@ describe('Checkout state', () => {
 
   describe('getLatestCommitHash', () => {
     it('should resolve the ref with git rev-parse', async () => {
-      mockGit({ 'rev-parse --verify --quiet main^{commit}': commitHash })
+      mockGit({
+        'rev-parse --show-prefix': '',
+        'rev-parse --verify --quiet main^{commit}': commitHash,
+      })
 
       await expect(
         createAdapter({}).getLatestCommitHash('main'),
       ).resolves.toEqual(commitHash)
       expect(getGitCalls()).toEqual([
+        ['rev-parse', '--show-prefix'],
         ['rev-parse', '--verify', '--quiet', 'main^{commit}'],
       ])
     })
@@ -40,7 +44,10 @@ describe('Checkout state', () => {
     it('should run git in the CI working directory', async () => {
       delete process.env.GITHUB_WORKSPACE
       process.env.CI_PROJECT_DIR = '/gitlab/project'
-      mockGit({ 'rev-parse --verify --quiet main^{commit}': commitHash })
+      mockGit({
+        'rev-parse --show-prefix': '',
+        'rev-parse --verify --quiet main^{commit}': commitHash,
+      })
 
       await createAdapter({}).getLatestCommitHash('main')
 
@@ -51,7 +58,11 @@ describe('Checkout state', () => {
 
     it('should throw GitAdapterError with NOT_FOUND when the ref does not resolve to a commit', async () => {
       mockGit({
-        'rev-parse --verify --quiet other^{commit}': createGitFailedError(''),
+        'rev-parse --show-prefix': '',
+        'rev-parse --verify --quiet other^{commit}': Object.assign(
+          new Error('Command failed'),
+          { code: 1, stderr: '' },
+        ),
       })
 
       await expect(

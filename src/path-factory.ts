@@ -1,21 +1,44 @@
+import { ErrorCode, GitAdapterError } from '@commitspark/git-adapter'
+import * as path from 'path'
 import { FilesystemRepositoryOptions } from './index.ts'
 import { PATH_ENTRY_FOLDER, PATH_SCHEMA_FILE } from './types.ts'
 
 export const getPathSchema = (
   gitRepositoryOptions: FilesystemRepositoryOptions,
-) => {
-  return gitRepositoryOptions.pathSchemaFile ?? PATH_SCHEMA_FILE
-}
+): string =>
+  normalizeRepositoryPath(
+    gitRepositoryOptions.pathSchemaFile ?? PATH_SCHEMA_FILE,
+    'pathSchemaFile',
+  )
 
 export const getPathEntryFolder = (
   gitRepositoryOptions: FilesystemRepositoryOptions,
-): string => {
-  const pathEntryFolder =
-    gitRepositoryOptions.pathEntryFolder ?? PATH_ENTRY_FOLDER
+): string =>
+  normalizeRepositoryPath(
+    gitRepositoryOptions.pathEntryFolder ?? PATH_ENTRY_FOLDER,
+    'pathEntryFolder',
+  )
 
-  if (pathEntryFolder.endsWith('/')) {
-    return pathEntryFolder.substring(0, pathEntryFolder.length - 1)
+/**
+ * Returns the given path relative to the top-level folder of the repository in the form Git uses for paths in trees,
+ * e.g. without `./` or trailing `/`. Paths that cannot be found in Git trees are rejected, so that a misconfigured path
+ * fails instead of silently matching no files.
+ */
+const normalizeRepositoryPath = (value: string, optionName: string): string => {
+  const normalizedPath = path.posix.normalize(value).replace(/\/+$/, '')
+  if (
+    value.includes('\\') ||
+    path.posix.isAbsolute(normalizedPath) ||
+    normalizedPath === '' ||
+    normalizedPath === '.' ||
+    normalizedPath === '..' ||
+    normalizedPath.startsWith('../')
+  ) {
+    throw new GitAdapterError(
+      ErrorCode.INTERNAL_ERROR,
+      `Option "${optionName}" must be a path below the top-level folder of the repository with "/" as separator, ` +
+        `but is "${value}"`,
+    )
   }
-
-  return pathEntryFolder
+  return normalizedPath
 }

@@ -110,6 +110,8 @@ function runGitBinary(
         )
       }
     })
+    // git may exit before reading all input, e.g. on a fatal error, which is reported by the exit code instead
+    child.stdin.on('error', () => {})
     child.stdin.end(input ?? '')
   })
 }

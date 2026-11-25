@@ -11,10 +11,11 @@ Write support is present mostly for demonstration purposes and comes with severa
 
 # Prerequisites
 
-- The `git` binary must be installed and included in `$PATH`, e.g. by using a CI/CD image that contains it. Without
-  it, every call fails with a `GitAdapterError` with code `INTERNAL_ERROR`.
-- The working directory must contain the Git repository, including the commits to read. With shallow clones, only
-  the fetched commits can be read.
+- The `git` binary must be installed and included in `$PATH`, e.g. by using a CI/CD image that contains it.
+- The working directory must be the top-level folder of the Git repository, and the repository must contain the
+  commits to read. With shallow clones, only the fetched commits can be read.
+
+Otherwise, calls fail with a `GitAdapterError` with code `INTERNAL_ERROR`.
 
 # Working directory
 
@@ -27,7 +28,8 @@ The current working directory for file system access is determined by sequential
 # Read support
 
 Reads return the state of the given commit from the Git object database, and `ref` can be any branch name, tag name
-or commit hash. Uncommitted changes in the working tree are not read.
+or commit hash. Unlike with other adapters, other revision expressions such as `HEAD~1` resolve as well. Uncommitted
+changes in the working tree are not read.
 
 CI/CD pipelines usually check out a detached HEAD, without local branches. There, `ref` should be `HEAD` or the commit
 hash of the pipeline, e.g. `CI_COMMIT_SHA` in GitLab or `GITHUB_SHA` in GitHub Actions.
@@ -71,6 +73,9 @@ Instantiate the adapter with `createAdapter()` and the following options:
 | `checkedOutCommitHash` | False    | N/A                                 | Deprecated; has no effect          |
 | `pathSchemaFile`       | False    | `commitspark/schema/schema.graphql` | Path to schema file in repository  |
 | `pathEntryFolder`      | False    | `commitspark/entries/`              | Path to folder for content entries |
+
+Paths are relative to the top-level folder of the repository and use `/` as separator. `createAdapter()` throws a
+`GitAdapterError` with code `INTERNAL_ERROR` for paths outside the repository, such as absolute paths.
 
 # License
 

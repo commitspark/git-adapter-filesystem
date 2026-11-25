@@ -5,6 +5,7 @@ import {
   EntryHash,
   ErrorCode,
   GitAdapterError,
+  isHiddenPath,
   validateEntryId,
 } from '@commitspark/git-adapter'
 import { FilesystemRepositoryOptions } from './index.ts'
@@ -16,10 +17,11 @@ import { parse, stringify } from 'yaml'
 import { getPathEntryFolder, getPathSchema } from './path-factory.ts'
 import { ENTRY_EXTENSION } from './types.ts'
 import {
+  assertTopLevelWorkingDirectory,
   getCurrentBranch,
   getCurrentCommitHash,
+  resolveCommit,
   runGit,
-  tryGit,
 } from './git-cli.ts'
 import { listCommitFiles, readBlobs } from './git-objects.ts'
 
@@ -28,7 +30,7 @@ export const getEntryHashes = async (
   commitHash: string,
 ): Promise<EntryHash[]> => {
   const entryFiles = await listCommitEntryFiles(
-    getWorkingDirectory(),
+    await getRepositoryDirectory(),
     commitHash,
     gitRepositoryOptions,
   )
@@ -41,7 +43,7 @@ export const getEntriesByIds = async (
   ids: string[],
 ): Promise<Entry[]> => {
   ids.forEach(validateEntryId)
-  const cwd = getWorkingDirectory()
+  const cwd = await getRepositoryDirectory()
   const entryFiles = await listCommitEntryFiles(
     cwd,
     commitHash,
@@ -52,25 +54,46 @@ export const getEntriesByIds = async (
     cwd,
     existingIds.map((id) => entryFiles.get(id) as string),
   )
-  return existingIds.map((id, index) => {
-    const content = parse(contents[index].toString('utf8'))
-    return { id: id, metadata: content.metadata, data: content.data }
-  })
+  return existingIds.map((id, index) => parseEntry(id, contents[index]))
+}
+
+const parseEntry = (id: string, fileContent: Buffer): Entry => {
+  let content: unknown
+  try {
+    content = parse(fileContent.toString('utf8'))
+  } catch (error) {
+    throw new GitAdapterError(
+      ErrorCode.INTERNAL_ERROR,
+      `Entry file of entry "${id}" is no valid YAML: ${(error as Error).message}`,
+    )
+  }
+  if (
+    typeof content !== 'object' ||
+    content === null ||
+    Array.isArray(content)
+  ) {
+    throw new GitAdapterError(
+      ErrorCode.INTERNAL_ERROR,
+      `Entry file of entry "${id}" does not contain a YAML mapping`,
+    )
+  }
+  const { metadata, data } = content as Pick<Entry, 'metadata' | 'data'>
+  return { id: id, metadata: metadata, data: data }
 }
 
 export const getSchema = async (
   gitRepositoryOptions: FilesystemRepositoryOptions,
   commitHash: string,
 ): Promise<string> => {
-  const cwd = getWorkingDirectory()
+  const cwd = await getRepositoryDirectory()
   await assertCommitExists(cwd, commitHash)
-  const pathSchema = path.posix.normalize(getPathSchema(gitRepositoryOptions))
+  const pathSchema = getPathSchema(gitRepositoryOptions)
   const schemaFile = (await listCommitFiles(cwd, commitHash, pathSchema)).find(
     (file) => file.path === pathSchema,
   )
   if (schemaFile === undefined) {
     throw new GitAdapterError(
-      ErrorCode.INTERNAL_ERROR,
+      ErrorCode.NOT_FOUND,
       `Schema file "${pathSchema}" does not exist in commit "${commitHash}"`,
     )
   }
@@ -79,7 +102,8 @@ export const getSchema = async (
 }
 
 /**
- * Resolves a branch name, tag name or commit hash with `git rev-parse`, also with a detached HEAD.
+ * Resolves a branch name, tag name or commit hash with `git rev-parse`, also with a detached HEAD. Other revision
+ * expressions such as `HEAD~1` resolve as well.
  */
 export const getLatestCommitHash = async (
   gitRepositoryOptions: FilesystemRepositoryOptions,
@@ -89,10 +113,7 @@ export const getLatestCommitHash = async (
   if (ref.startsWith('-')) {
     throw new GitAdapterError(ErrorCode.BAD_REQUEST, `Invalid ref "${ref}"`)
   }
-  const commitHash = await tryGit(
-    ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`],
-    getWorkingDirectory(),
-  )
+  const commitHash = await resolveCommit(await getRepositoryDirectory(), ref)
   if (commitHash === undefined) {
     throw new GitAdapterError(
       ErrorCode.NOT_FOUND,
@@ -113,10 +134,7 @@ const assertCommitExists = async (
       `"${commitHash}" is not a commit hash`,
     )
   }
-  if (
-    (await tryGit(['cat-file', '-e', `${commitHash}^{commit}`], cwd)) ===
-    undefined
-  ) {
+  if ((await resolveCommit(cwd, commitHash)) === undefined) {
     throw new GitAdapterError(
       ErrorCode.NOT_FOUND,
       `No commit "${commitHash}" found`,
@@ -132,9 +150,7 @@ const listCommitEntryFiles = async (
   gitRepositoryOptions: FilesystemRepositoryOptions,
 ): Promise<Map<string, string>> => {
   await assertCommitExists(cwd, commitHash)
-  const pathEntryFolder = path.posix.normalize(
-    getPathEntryFolder(gitRepositoryOptions),
-  )
+  const pathEntryFolder = getPathEntryFolder(gitRepositoryOptions)
   const files = await listCommitFiles(cwd, commitHash, pathEntryFolder)
   const entryFiles = new Map<string, string>()
   for (const file of files) {
@@ -142,10 +158,7 @@ const listCommitEntryFiles = async (
       continue
     }
     const relativePath = file.path.substring(pathEntryFolder.length + 1)
-    if (
-      relativePath.endsWith(ENTRY_EXTENSION) &&
-      !relativePath.split('/').some((segment) => segment.startsWith('.'))
-    ) {
+    if (relativePath.endsWith(ENTRY_EXTENSION) && !isHiddenPath(relativePath)) {
       entryFiles.set(
         relativePath.substring(0, relativePath.length - ENTRY_EXTENSION.length),
         file.blobHash,
@@ -210,7 +223,7 @@ export const createCommit = async (
   gitRepositoryOptions: FilesystemRepositoryOptions,
   commitDraft: CommitDraft,
 ): Promise<Commit> => {
-  const cwd = getWorkingDirectory()
+  const cwd = await getRepositoryDirectory()
   const pathEntryFolder = getPathEntryFolder(gitRepositoryOptions)
 
   const currentBranch = await getCurrentBranch(cwd)
@@ -395,6 +408,12 @@ const updateWorkingTree = async (
     ['reset', '--quiet', '--', ...changes.map((change) => change.path)],
     cwd,
   )
+}
+
+const getRepositoryDirectory = async (): Promise<string> => {
+  const cwd = getWorkingDirectory()
+  await assertTopLevelWorkingDirectory(cwd)
+  return cwd
 }
 
 function getWorkingDirectory(): string {

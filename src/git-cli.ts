@@ -31,25 +31,57 @@ export async function runGit(
 }
 
 /**
- * Runs git and returns its trimmed standard output, or `undefined` if git exits with an error, e.g. because a ref
- * does not exist.
+ * Runs git and returns its trimmed standard output, or `undefined` if git exits with code 1, which commands run with
+ * `--quiet` use to report that a ref or commit does not exist. Any other failure is thrown as with `runGit()`.
  */
-export async function tryGit(
+async function tryGit(
   args: string[],
   cwd: string,
 ): Promise<string | undefined> {
   try {
     return await execGit(args, cwd)
   } catch (error) {
-    if (isGitBinaryMissing(error)) {
-      throw createGitBinaryMissingError(cwd)
+    if ((error as { code?: unknown }).code === 1) {
+      return undefined
     }
-    return undefined
+    return runGit(args, cwd)
+  }
+}
+
+/**
+ * Resolves the given revision to a commit hash, or returns `undefined` if it does not resolve to a commit.
+ */
+export async function resolveCommit(
+  cwd: string,
+  revision: string,
+): Promise<string | undefined> {
+  return tryGit(
+    ['rev-parse', '--verify', '--quiet', `${revision}^{commit}`],
+    cwd,
+  )
+}
+
+/**
+ * Throws if the working directory is not the top-level folder of a repository, as paths of this adapter are relative
+ * to the working directory for file system access but relative to the top-level folder in Git trees.
+ */
+export async function assertTopLevelWorkingDirectory(
+  cwd: string,
+): Promise<void> {
+  const prefix = await runGit(['rev-parse', '--show-prefix'], cwd)
+  if (prefix !== '') {
+    throw new GitAdapterError(
+      ErrorCode.INTERNAL_ERROR,
+      `Working directory "${cwd}" must be the top-level folder of its Git repository, not subfolder "${prefix}"`,
+    )
   }
 }
 
 export async function getCurrentBranch(cwd: string): Promise<string> {
-  const branch = await tryGit(['symbolic-ref', '--short', 'HEAD'], cwd)
+  const branch = await tryGit(
+    ['symbolic-ref', '--quiet', '--short', 'HEAD'],
+    cwd,
+  )
   if (branch === undefined) {
     throw new GitAdapterError(
       ErrorCode.INTERNAL_ERROR,
@@ -63,7 +95,7 @@ export async function getCurrentBranch(cwd: string): Promise<string> {
 export async function getCurrentCommitHash(
   cwd: string,
 ): Promise<string | undefined> {
-  return tryGit(['rev-parse', 'HEAD'], cwd)
+  return resolveCommit(cwd, 'HEAD')
 }
 
 // Node.js reports a missing working directory with the same error code as a missing binary
