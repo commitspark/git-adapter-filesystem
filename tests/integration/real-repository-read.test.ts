@@ -328,6 +328,7 @@ describe('Reading from a real repository', () => {
 
     it.each([
       ['an absolute path', '/commitspark/entries'],
+      ['a Windows drive path', 'C:/commitspark/entries'],
       ['the top-level folder', '.'],
       ['an empty path', ''],
       ['a path outside the repository', '../entries'],

@@ -29,6 +29,8 @@ const normalizeRepositoryPath = (value: string, optionName: string): string => {
   if (
     value.includes('\\') ||
     path.posix.isAbsolute(normalizedPath) ||
+    // Windows drive letters, e.g. "C:/entries"
+    /^[A-Za-z]:/.test(normalizedPath) ||
     normalizedPath === '' ||
     normalizedPath === '.' ||
     normalizedPath === '..' ||

@@ -70,6 +70,24 @@ describe('Checkout state', () => {
       ).rejects.toMatchObject({ code: ErrorCode.NOT_FOUND })
     })
 
+    it('should throw GitAdapterError with INTERNAL_ERROR including the message of git for a fatal git error', async () => {
+      mockGit({
+        'rev-parse --show-prefix': '',
+        'rev-parse --verify --quiet main^{commit}': createGitFailedError(
+          'fatal: detected dubious ownership in repository',
+        ),
+      })
+
+      await expect(
+        createAdapter({}).getLatestCommitHash('main'),
+      ).rejects.toMatchObject({
+        code: ErrorCode.INTERNAL_ERROR,
+        message: expect.stringContaining('dubious ownership'),
+      })
+      // the failed command is not run again to build the error
+      expect(getGitCalls()).toHaveLength(2)
+    })
+
     it('should throw GitAdapterError with BAD_REQUEST for a ref that would be an option', async () => {
       mockGit({})
 

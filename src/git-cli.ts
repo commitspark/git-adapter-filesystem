@@ -16,18 +16,26 @@ export async function runGit(
   try {
     return await execGit(args, cwd, env)
   } catch (error) {
-    if (isGitBinaryMissing(error)) {
-      throw createGitBinaryMissingError(cwd)
-    }
-    const stderr =
-      error && typeof error === 'object' && 'stderr' in error
-        ? String((error as { stderr: unknown }).stderr).trim()
-        : undefined
-    throw new GitAdapterError(
-      ErrorCode.INTERNAL_ERROR,
-      `"git ${args.join(' ')}" failed${stderr ? `: ${stderr}` : ` (${(error as Error).message})`}`,
-    )
+    throw toGitAdapterError(args, cwd, error)
   }
+}
+
+function toGitAdapterError(
+  args: string[],
+  cwd: string,
+  error: unknown,
+): GitAdapterError {
+  if (isGitBinaryMissing(error)) {
+    return createGitBinaryMissingError(cwd)
+  }
+  const stderr =
+    error && typeof error === 'object' && 'stderr' in error
+      ? String((error as { stderr: unknown }).stderr).trim()
+      : undefined
+  return new GitAdapterError(
+    ErrorCode.INTERNAL_ERROR,
+    `"git ${args.join(' ')}" failed${stderr ? `: ${stderr}` : ` (${(error as Error).message})`}`,
+  )
 }
 
 /**
@@ -44,7 +52,7 @@ async function tryGit(
     if ((error as { code?: unknown }).code === 1) {
       return undefined
     }
-    return runGit(args, cwd)
+    throw toGitAdapterError(args, cwd, error)
   }
 }
 
