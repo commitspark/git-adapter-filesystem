@@ -25,8 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of matching no entries
 - Throw `NOT_FOUND` for a missing schema file and `INTERNAL_ERROR` with the message of git for failures of git, e.g.
   outside a repository, instead of `INTERNAL_ERROR` and `NOT_FOUND` respectively, as specified by the adapter contract
-- Throw `GitAdapterError` for entry files that contain no YAML mapping instead of a `TypeError`, so that the error
-  names the entry
+- Throw `GitAdapterError` with code `BAD_REPOSITORY_DATA` for entry files that contain no YAML mapping instead of a
+  `TypeError`, so that the error names the entry and points to the repository
 
 ## [2.0.0-beta.3] - 2026-11-11
 

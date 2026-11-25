@@ -63,7 +63,7 @@ const parseEntry = (id: string, fileContent: Buffer): Entry => {
     content = parse(fileContent.toString('utf8'))
   } catch (error) {
     throw new GitAdapterError(
-      ErrorCode.INTERNAL_ERROR,
+      ErrorCode.BAD_REPOSITORY_DATA,
       `Entry file of entry "${id}" is no valid YAML: ${(error as Error).message}`,
     )
   }
@@ -73,7 +73,7 @@ const parseEntry = (id: string, fileContent: Buffer): Entry => {
     Array.isArray(content)
   ) {
     throw new GitAdapterError(
-      ErrorCode.INTERNAL_ERROR,
+      ErrorCode.BAD_REPOSITORY_DATA,
       `Entry file of entry "${id}" does not contain a YAML mapping`,
     )
   }

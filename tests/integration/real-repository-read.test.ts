@@ -268,7 +268,7 @@ describe('Reading from a real repository', () => {
       ['a list', '- a\n- b\n', 'does not contain a YAML mapping'],
       ['invalid YAML', 'metadata: [unclosed\n', 'is no valid YAML'],
     ])(
-      'should throw GitAdapterError with INTERNAL_ERROR for an entry file with %s',
+      'should throw GitAdapterError with BAD_REPOSITORY_DATA for an entry file with %s',
       async (_description, content, message) => {
         writeFile('commitspark/entries/a.yaml', content)
         const commit = commitAll('Broken entry')
@@ -276,7 +276,7 @@ describe('Reading from a real repository', () => {
         await expect(
           createAdapter({}).getEntriesByIds(commit, ['a']),
         ).rejects.toMatchObject({
-          code: ErrorCode.INTERNAL_ERROR,
+          code: ErrorCode.BAD_REPOSITORY_DATA,
           message: expect.stringContaining(message),
         })
       },
