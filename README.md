@@ -9,6 +9,13 @@ This adapter is primarily meant to be used in read-only CI/CD pipeline scenarios
 
 Write support is present mostly for demonstration purposes and comes with several limitations.
 
+# Prerequisites
+
+- The `git` binary must be installed and included in `$PATH`, e.g. by using a CI/CD image that contains it. Without
+  it, every call fails with a `GitAdapterError` with code `INTERNAL_ERROR`.
+- The working directory must contain the Git repository, including the commits to read. With shallow clones, only
+  the fetched commits can be read.
+
 # Working directory
 
 The current working directory for file system access is determined by sequentially checking the following sources:
@@ -19,16 +26,11 @@ The current working directory for file system access is determined by sequential
 
 # Read support
 
-With the `git` binary, reads return the state of any commit from the Git object database, and `ref` can be any branch
-name, tag name or commit hash, also with a detached HEAD. Uncommitted changes in the working tree are not read.
+Reads return the state of the given commit from the Git object database, and `ref` can be any branch name, tag name
+or commit hash. Uncommitted changes in the working tree are not read.
 
-Without the `git` binary, only the checked out commit can be read from the working tree, which must not contain
-uncommitted changes. Branch and commit are then determined from the following environment variables:
-
-1. GitHub `GITHUB_REF_NAME` and `GITHUB_SHA`
-2. GitLab `CI_COMMIT_REF_NAME` and `CI_COMMIT_SHA`
-
-If neither leads to a result, an error is thrown.
+CI/CD pipelines usually check out a detached HEAD, without local branches. There, `ref` should be `HEAD` or the commit
+hash of the pipeline, e.g. `CI_COMMIT_SHA` in GitLab or `GITHUB_SHA` in GitHub Actions.
 
 # Write support
 
@@ -47,9 +49,8 @@ To make this check atomic, the commit is assembled in a temporary index with Git
 `git update-ref <branch> <new> <parentSha>`, which only succeeds if the branch still points to `parentSha`. Only
 afterwards are the changed entry files written to the working tree and the index.
 
-## Prerequisites and limitations
+## Limitations
 
-- The `git` binary must be installed and included in `$PATH`
 - When committing to a branch, the branch must already be checked out in the filesystem
 - If writing to the working tree fails after a commit, the working tree is left in an undefined state
 - `git` must have a usable `user.name`/`user.email` configuration present

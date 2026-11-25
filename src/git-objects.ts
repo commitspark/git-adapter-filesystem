@@ -1,5 +1,6 @@
 import { spawn } from 'child_process'
 import { ErrorCode, GitAdapterError } from '@commitspark/git-adapter'
+import { createGitBinaryMissingError, isGitBinaryMissing } from './git-cli.ts'
 
 /**
  * Regular file in the tree of a commit, with its path relative to the working directory.
@@ -89,10 +90,12 @@ function runGitBinary(
     child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk))
     child.on('error', (error) =>
       reject(
-        new GitAdapterError(
-          ErrorCode.INTERNAL_ERROR,
-          `"git ${args.join(' ')}" failed (${error.message})`,
-        ),
+        isGitBinaryMissing(error)
+          ? createGitBinaryMissingError(cwd)
+          : new GitAdapterError(
+              ErrorCode.INTERNAL_ERROR,
+              `"git ${args.join(' ')}" failed (${error.message})`,
+            ),
       ),
     )
     child.on('close', (exitCode) => {

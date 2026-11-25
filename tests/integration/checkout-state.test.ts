@@ -74,55 +74,22 @@ describe('Checkout state', () => {
       mockMissingGit()
     })
 
-    it('should determine branch and commit from GitHub Actions environment variables', async () => {
-      process.env.GITHUB_REF_NAME = 'main'
-      process.env.GITHUB_SHA = commitHash
-
+    it('should throw GitAdapterError with INTERNAL_ERROR when resolving a ref', async () => {
       await expect(
         createAdapter({}).getLatestCommitHash('main'),
-      ).resolves.toEqual(commitHash)
+      ).rejects.toMatchObject({
+        code: ErrorCode.INTERNAL_ERROR,
+        message: expect.stringContaining('requires the git binary'),
+      })
     })
 
-    it('should determine branch and commit from GitLab CI/CD environment variables', async () => {
-      process.env.CI_COMMIT_REF_NAME = 'main'
-      process.env.CI_COMMIT_SHA = commitHash
-
+    it('should throw GitAdapterError with INTERNAL_ERROR when reading', async () => {
       await expect(
-        createAdapter({}).getLatestCommitHash('main'),
-      ).resolves.toEqual(commitHash)
-    })
-
-    it('should resolve the checked out commit hash to itself', async () => {
-      process.env.GITHUB_SHA = commitHash
-
-      await expect(
-        createAdapter({}).getLatestCommitHash(commitHash),
-      ).resolves.toEqual(commitHash)
-    })
-
-    it('should throw GitAdapterError with BAD_REQUEST for a ref that is not checked out', async () => {
-      process.env.GITHUB_REF_NAME = 'main'
-      process.env.GITHUB_SHA = commitHash
-
-      await expect(
-        createAdapter({}).getLatestCommitHash('other'),
-      ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
-    })
-
-    it('should throw GitAdapterError with INTERNAL_ERROR when branch cannot be determined', async () => {
-      process.env.GITHUB_SHA = commitHash
-
-      await expect(
-        createAdapter({}).getLatestCommitHash('main'),
-      ).rejects.toMatchObject({ code: ErrorCode.INTERNAL_ERROR })
-    })
-
-    it('should throw GitAdapterError with INTERNAL_ERROR when commit cannot be determined', async () => {
-      process.env.GITHUB_REF_NAME = 'main'
-
-      await expect(
-        createAdapter({}).getLatestCommitHash('main'),
-      ).rejects.toMatchObject({ code: ErrorCode.INTERNAL_ERROR })
+        createAdapter({}).getEntryHashes(commitHash),
+      ).rejects.toMatchObject({
+        code: ErrorCode.INTERNAL_ERROR,
+        message: expect.stringContaining('requires the git binary'),
+      })
     })
   })
 })

@@ -82,6 +82,9 @@ describe('Reading from a real repository', () => {
       await expect(
         createAdapter({}).getLatestCommitHash(commit),
       ).resolves.toEqual(commit)
+      await expect(
+        createAdapter({}).getLatestCommitHash('HEAD'),
+      ).resolves.toEqual(commit)
     })
 
     it('should throw GitAdapterError with NOT_FOUND for an unknown ref', async () => {
@@ -162,6 +165,18 @@ describe('Reading from a real repository', () => {
         },
       ])
     })
+
+    it.each([['../escaped'], ['nested/../../escaped'], ['.hidden']])(
+      'should throw GitAdapterError with BAD_REQUEST for entry ID "%s"',
+      async (id) => {
+        writeFile('commitspark/entries/a.yaml', entry('A', 'one'))
+        const commit = commitAll('First')
+
+        await expect(
+          createAdapter({}).getEntriesByIds(commit, [id]),
+        ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
+      },
+    )
 
     it('should read from a custom entry folder and schema path', async () => {
       writeFile('content/schema.graphql', 'type A { field: String }')

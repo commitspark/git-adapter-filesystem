@@ -4,14 +4,7 @@ import * as fs from 'fs/promises'
 const WORKING_DIRECTORY = '/repository'
 
 // environment variables read by the adapter that must not leak in from the host (e.g. when running in CI)
-const ADAPTER_ENV_VARS = [
-  'GITHUB_WORKSPACE',
-  'CI_PROJECT_DIR',
-  'GITHUB_REF_NAME',
-  'CI_COMMIT_REF_NAME',
-  'GITHUB_SHA',
-  'CI_COMMIT_SHA',
-]
+const ADAPTER_ENV_VARS = ['GITHUB_WORKSPACE', 'CI_PROJECT_DIR']
 
 let originalEnv: Record<string, string | undefined> = {}
 
@@ -101,52 +94,6 @@ export const createGitFailedError = (stderr: string): Error =>
 
 const createGitNotFoundError = (): Error =>
   Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' })
-
-export const createFsError = (code: string): NodeJS.ErrnoException =>
-  Object.assign(new Error(`${code}: mocked filesystem error`), { code: code })
-
-// file contents keyed by absolute path; paths not listed fail with ENOENT
-export const mockReadFile = (files: Record<string, string | Error>): void => {
-  jest.mocked(fs.readFile).mockImplementation((async (
-    filePath: string,
-    options?: { encoding?: BufferEncoding },
-  ) => {
-    const content = files[filePath]
-    if (content === undefined) {
-      throw createFsError('ENOENT')
-    }
-    if (content instanceof Error) {
-      throw content
-    }
-    return options?.encoding ? content : Buffer.from(content, 'utf8')
-  }) as unknown as typeof fs.readFile)
-}
-
-// folder contents keyed by absolute folder path; names ending with "/" are folders, names ending with "@" are symbolic
-// links, all other names are files; folders not listed fail with ENOENT
-export const mockReaddir = (
-  folders: Record<string, string[] | Error>,
-): void => {
-  jest.mocked(fs.readdir).mockImplementation((async (folderPath: string) => {
-    const names = folders[folderPath]
-    if (names === undefined) {
-      throw createFsError('ENOENT')
-    }
-    if (names instanceof Error) {
-      throw names
-    }
-    return names.map((name) => {
-      const isFolder = name.endsWith('/')
-      const isSymbolicLink = name.endsWith('@')
-      return {
-        name: isFolder || isSymbolicLink ? name.slice(0, -1) : name,
-        isFile: () => !isFolder && !isSymbolicLink,
-        isDirectory: () => isFolder,
-        isSymbolicLink: () => isSymbolicLink,
-      }
-    })
-  }) as unknown as typeof fs.readdir)
-}
 
 // the given absolute paths are symbolic links, all other paths exist and are no symbolic links
 export const mockSymbolicLinks = (symbolicLinkPaths: string[]): void => {
