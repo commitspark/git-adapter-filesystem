@@ -239,12 +239,12 @@ describe('Reading from a real repository', () => {
       ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
     })
 
-    it('should throw GitAdapterError with NOT_FOUND when the commit has no schema file', async () => {
+    it('should throw GitAdapterError with BAD_REPOSITORY_DATA when the commit has no schema file', async () => {
       writeFile('commitspark/entries/a.yaml', entry('A', 'one'))
       const commit = commitAll('First')
 
       await expect(createAdapter({}).getSchema(commit)).rejects.toMatchObject({
-        code: ErrorCode.NOT_FOUND,
+        code: ErrorCode.BAD_REPOSITORY_DATA,
       })
     })
   })

@@ -93,7 +93,7 @@ export const getSchema = async (
   )
   if (schemaFile === undefined) {
     throw new GitAdapterError(
-      ErrorCode.NOT_FOUND,
+      ErrorCode.BAD_REPOSITORY_DATA,
       `Schema file "${pathSchema}" does not exist in commit "${commitHash}"`,
     )
   }
