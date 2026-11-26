@@ -68,11 +68,10 @@ afterwards are the changed entry files written to the working tree and the index
 
 Instantiate the adapter with `createAdapter()` and the following options:
 
-| Option name            | Required | Default value                       | Description                        |
-|------------------------|----------|-------------------------------------|------------------------------------|
-| `checkedOutCommitHash` | False    | N/A                                 | Deprecated; has no effect          |
-| `pathSchemaFile`       | False    | `commitspark/schema/schema.graphql` | Path to schema file in repository  |
-| `pathEntryFolder`      | False    | `commitspark/entries/`              | Path to folder for content entries |
+| Option name       | Required | Default value                       | Description                        |
+|-------------------|----------|-------------------------------------|------------------------------------|
+| `pathSchemaFile`  | False    | `commitspark/schema/schema.graphql` | Path to schema file in repository  |
+| `pathEntryFolder` | False    | `commitspark/entries/`              | Path to folder for content entries |
 
 Paths are relative to the top-level folder of the repository and use `/` as separator. `createAdapter()` throws a
 `GitAdapterError` with code `INTERNAL_ERROR` for paths outside the repository, such as absolute paths.

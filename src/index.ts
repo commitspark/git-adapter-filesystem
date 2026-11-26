@@ -14,10 +14,6 @@ import {
 } from './filesystem-adapter.ts'
 
 export interface FilesystemRepositoryOptions {
-  /**
-   * @deprecated Has no effect.
-   */
-  checkedOutCommitHash?: string
   pathSchemaFile?: string
   pathEntryFolder?: string
 }
