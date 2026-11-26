@@ -12,6 +12,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Write field `schema` of a commit draft to the schema file in the same commit as the entries, so that schema and
   entries can be changed together
 
+### Changed
+
+- Read entries and schema of the given commit from the Git object database instead of from the working tree, so that
+  any branch, tag or commit can be read, also with a detached HEAD as in pull request checkouts of CI/CD pipelines,
+  and so that uncommitted changes are not returned as content of a commit
+- Require the `git` binary for all operations instead of falling back to the working tree and to the CI/CD environment
+  variables `GITHUB_REF_NAME`, `GITHUB_SHA`, `CI_COMMIT_REF_NAME` and `CI_COMMIT_SHA` without it, so that reads always
+  return the state of exactly the requested commit
+- Require the working directory to be the top-level folder of the repository and reject path options outside the
+  repository when creating the adapter, so that reads and commits use the same paths and a misconfigured path fails
+  instead of matching no entries
+- Throw `NOT_FOUND` for a missing schema file and `INTERNAL_ERROR` with the message of git for failures of git, e.g.
+  outside a repository, instead of `INTERNAL_ERROR` and `NOT_FOUND` respectively, as required by the adapter contract
+- Throw `GitAdapterError` with code `BAD_REPOSITORY_DATA` for entry files that contain no YAML mapping instead of a
+  `TypeError`, so that the error names the entry and points to the repository
+- Resolve a name that is both a branch name and a tag name to the branch instead of to the tag, as required by the
+  adapter contract, so that reads and commits through that name use the same branch
+
+### Removed
+
+- Remove the deprecated adapter option `checkedOutCommitHash`, which had no effect
+
 ## [2.0.0-beta.3] - 2026-11-11
 
 ### Added

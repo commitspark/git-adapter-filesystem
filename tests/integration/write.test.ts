@@ -57,8 +57,12 @@ describe('Writing', () => {
     commitTreeResponse = newCommitHash,
   }: CommitMock = {}) => {
     mockGit({
-      'symbolic-ref --short HEAD': 'main',
-      'rev-parse HEAD': [parentCommitHash, headAfterCheck],
+      'rev-parse --show-prefix': '',
+      'symbolic-ref --quiet --short HEAD': 'main',
+      'rev-parse --verify --quiet HEAD^{commit}': [
+        parentCommitHash,
+        headAfterCheck,
+      ],
       [`read-tree ${parentCommitHash}`]: '',
       [[
         'hash-object',
@@ -144,8 +148,9 @@ describe('Writing', () => {
       ).resolves.toEqual({ commitHash: newCommitHash })
 
       expect(getGitCalls()).toEqual([
-        ['symbolic-ref', '--short', 'HEAD'],
-        ['rev-parse', 'HEAD'],
+        ['rev-parse', '--show-prefix'],
+        ['symbolic-ref', '--quiet', '--short', 'HEAD'],
+        ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'],
         ['read-tree', parentCommitHash],
         [
           'hash-object',
@@ -189,6 +194,7 @@ describe('Writing', () => {
       ])
       // only index operations use the temporary index
       expect(getGitCallEnvironmentValues('GIT_INDEX_FILE')).toEqual([
+        undefined,
         undefined,
         undefined,
         temporaryIndex,
@@ -359,7 +365,7 @@ describe('Writing', () => {
         }),
       ).rejects.toMatchObject({ code: ErrorCode.CONFLICT })
       expect(mockedFs.writeFile).not.toHaveBeenCalled()
-      expect(getGitCalls()).toHaveLength(2)
+      expect(getGitCalls()).toHaveLength(3)
     })
 
     it('should throw GitAdapterError with CONFLICT without touching the working tree when the branch moves while committing', async () => {

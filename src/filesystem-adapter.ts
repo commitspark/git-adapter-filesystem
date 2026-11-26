@@ -5,53 +5,36 @@ import {
   EntryHash,
   ErrorCode,
   GitAdapterError,
+  isHiddenPath,
   validateEntryId,
 } from '@commitspark/git-adapter'
 import { FilesystemRepositoryOptions } from './index.ts'
-import { createHash } from 'crypto'
-import { Dirent, Stats } from 'fs'
+import { Stats } from 'fs'
 import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
 import { parse, stringify } from 'yaml'
 import { getPathEntryFolder, getPathSchema } from './path-factory.ts'
 import { ENTRY_EXTENSION } from './types.ts'
-import { getCurrentBranch, getCurrentCommitHash, runGit } from './git-cli.ts'
+import {
+  assertTopLevelWorkingDirectory,
+  getCurrentBranch,
+  getCurrentCommitHash,
+  resolveCommit,
+  runGit,
+} from './git-cli.ts'
+import { listCommitFiles, readBlobs } from './git-objects.ts'
 
 export const getEntryHashes = async (
   gitRepositoryOptions: FilesystemRepositoryOptions,
   commitHash: string,
 ): Promise<EntryHash[]> => {
-  const cwd = getWorkingDirectory()
-  await assertCommitIsCheckedOut(cwd, commitHash)
-
-  const pathEntryFolder = path.resolve(
-    cwd,
-    getPathEntryFolder(gitRepositoryOptions),
+  const entryFiles = await listCommitEntryFiles(
+    await getRepositoryDirectory(),
+    commitHash,
+    gitRepositoryOptions,
   )
-
-  const entryFilePaths = await listEntryFilePaths(pathEntryFolder, '')
-  if (entryFilePaths === undefined) {
-    // a repository without entries has no entry folder
-    return []
-  }
-
-  const entryIds = entryFilePaths.map((filePath) =>
-    filePath.substring(0, filePath.length - ENTRY_EXTENSION.length),
-  )
-
-  return Promise.all(
-    entryIds.map(async (id) => {
-      const fileContent = await readEntryFile(pathEntryFolder, id)
-      if (fileContent === undefined) {
-        throw new GitAdapterError(
-          ErrorCode.INTERNAL_ERROR,
-          `Entry file for "${id}" disappeared while reading entry folder "${pathEntryFolder}"`,
-        )
-      }
-      return { id: id, hash: createGitBlobHash(fileContent) }
-    }),
-  )
+  return [...entryFiles].map(([id, blobHash]) => ({ id: id, hash: blobHash }))
 }
 
 export const getEntriesByIds = async (
@@ -59,112 +42,142 @@ export const getEntriesByIds = async (
   commitHash: string,
   ids: string[],
 ): Promise<Entry[]> => {
-  const cwd = getWorkingDirectory()
-  await assertCommitIsCheckedOut(cwd, commitHash)
   ids.forEach(validateEntryId)
-
-  const pathEntryFolder = path.resolve(
+  const cwd = await getRepositoryDirectory()
+  const entryFiles = await listCommitEntryFiles(
     cwd,
-    getPathEntryFolder(gitRepositoryOptions),
+    commitHash,
+    gitRepositoryOptions,
   )
-  await Promise.all(
-    ids.map((id) => assertPathHasNoSymbolicLinks(pathEntryFolder, id)),
+  const existingIds = ids.filter((id) => entryFiles.has(id))
+  const contents = await readBlobs(
+    cwd,
+    existingIds.map((id) => entryFiles.get(id) as string),
   )
-
-  const entries = await Promise.all(
-    ids.map(async (id): Promise<Entry | undefined> => {
-      const fileContent = await readEntryFile(pathEntryFolder, id)
-      if (fileContent === undefined) {
-        return undefined
-      }
-      const content = parse(fileContent.toString('utf8'))
-      return {
-        id: id,
-        metadata: content.metadata,
-        data: content.data,
-      }
-    }),
-  )
-
-  return entries.filter((entry) => entry !== undefined)
+  return existingIds.map((id, index) => parseEntry(id, contents[index]))
 }
 
-const assertCommitIsCheckedOut = async (
+const parseEntry = (id: string, fileContent: Buffer): Entry => {
+  let content: unknown
+  try {
+    content = parse(fileContent.toString('utf8'))
+  } catch (error) {
+    throw new GitAdapterError(
+      ErrorCode.BAD_REPOSITORY_DATA,
+      `Entry file of entry "${id}" is no valid YAML: ${(error as Error).message}`,
+    )
+  }
+  if (
+    typeof content !== 'object' ||
+    content === null ||
+    Array.isArray(content)
+  ) {
+    throw new GitAdapterError(
+      ErrorCode.BAD_REPOSITORY_DATA,
+      `Entry file of entry "${id}" does not contain a YAML mapping`,
+    )
+  }
+  const { metadata, data } = content as Pick<Entry, 'metadata' | 'data'>
+  return { id: id, metadata: metadata, data: data }
+}
+
+export const getSchema = async (
+  gitRepositoryOptions: FilesystemRepositoryOptions,
+  commitHash: string,
+): Promise<string> => {
+  const cwd = await getRepositoryDirectory()
+  await assertCommitExists(cwd, commitHash)
+  const pathSchema = getPathSchema(gitRepositoryOptions)
+  const schemaFile = (await listCommitFiles(cwd, commitHash, pathSchema)).find(
+    (file) => file.path === pathSchema,
+  )
+  if (schemaFile === undefined) {
+    throw new GitAdapterError(
+      ErrorCode.NOT_FOUND,
+      `Schema file "${pathSchema}" does not exist in commit "${commitHash}"`,
+    )
+  }
+  const [content] = await readBlobs(cwd, [schemaFile.blobHash])
+  return content.toString('utf8')
+}
+
+/**
+ * Resolves a branch name, tag name or commit hash with `git rev-parse`, also with a detached HEAD. Other revision
+ * expressions such as `HEAD~1` resolve as well.
+ */
+export const getLatestCommitHash = async (
+  gitRepositoryOptions: FilesystemRepositoryOptions,
+  ref: string,
+): Promise<string> => {
+  // refs are passed to git as arguments, so that an option is rejected
+  if (ref.startsWith('-')) {
+    throw new GitAdapterError(ErrorCode.BAD_REQUEST, `Invalid ref "${ref}"`)
+  }
+  const cwd = await getRepositoryDirectory()
+  // a branch takes precedence over a tag of the same name, unlike in git rev-parse
+  const commitHash =
+    (await resolveCommit(cwd, `refs/heads/${ref}`)) ??
+    (await resolveCommit(cwd, ref))
+  if (commitHash === undefined) {
+    throw new GitAdapterError(
+      ErrorCode.NOT_FOUND,
+      `No commit found for ref "${ref}"`,
+    )
+  }
+  return commitHash
+}
+
+const assertCommitExists = async (
   cwd: string,
   commitHash: string,
 ): Promise<void> => {
-  const currentCommitHash = await getCurrentCommitHash(cwd)
-  if (commitHash !== currentCommitHash) {
+  // hashes are passed to git as arguments, so that anything else, e.g. an option, is rejected
+  if (!/^[0-9a-f]+$/i.test(commitHash)) {
     throw new GitAdapterError(
       ErrorCode.BAD_REQUEST,
-      `This adapter does not support navigating the git history; current commit hash is ` +
-        `"${currentCommitHash}" but "${commitHash}" was requested`,
+      `"${commitHash}" is not a commit hash`,
+    )
+  }
+  if ((await resolveCommit(cwd, commitHash)) === undefined) {
+    throw new GitAdapterError(
+      ErrorCode.NOT_FOUND,
+      `No commit "${commitHash}" found`,
     )
   }
 }
 
-// returns the paths of all entry files below the given folder relative to the entry folder, using "/" as separator;
-// hidden files and folders are skipped and symbolic links are not followed; returns undefined if the folder does not
-// exist
-const listEntryFilePaths = async (
-  pathEntryFolder: string,
-  relativeFolderPath: string,
-): Promise<string[] | undefined> => {
-  const folderPath =
-    relativeFolderPath === ''
-      ? pathEntryFolder
-      : `${pathEntryFolder}/${relativeFolderPath}`
-
-  let directoryEntries: Dirent[]
-  try {
-    directoryEntries = await fs.readdir(folderPath, { withFileTypes: true })
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return undefined
-    }
-    throw new GitAdapterError(
-      ErrorCode.INTERNAL_ERROR,
-      `Failed to read entry folder "${folderPath}": ${(error as Error).message}`,
-    )
-  }
-
-  const filePaths: string[] = []
-  for (const directoryEntry of directoryEntries) {
-    if (directoryEntry.name.startsWith('.')) {
+// returns the blob hash of each entry file of a commit by entry ID; hidden files and folders are skipped and symbolic
+// links are no entries
+const listCommitEntryFiles = async (
+  cwd: string,
+  commitHash: string,
+  gitRepositoryOptions: FilesystemRepositoryOptions,
+): Promise<Map<string, string>> => {
+  await assertCommitExists(cwd, commitHash)
+  const pathEntryFolder = getPathEntryFolder(gitRepositoryOptions)
+  const files = await listCommitFiles(cwd, commitHash, pathEntryFolder)
+  const entryFiles = new Map<string, string>()
+  for (const file of files) {
+    if (!file.path.startsWith(`${pathEntryFolder}/`)) {
       continue
     }
-    const relativePath =
-      relativeFolderPath === ''
-        ? directoryEntry.name
-        : `${relativeFolderPath}/${directoryEntry.name}`
-    if (directoryEntry.isDirectory()) {
-      const nestedFilePaths = await listEntryFilePaths(
-        pathEntryFolder,
-        relativePath,
+    const relativePath = file.path.substring(pathEntryFolder.length + 1)
+    if (relativePath.endsWith(ENTRY_EXTENSION) && !isHiddenPath(relativePath)) {
+      entryFiles.set(
+        relativePath.substring(0, relativePath.length - ENTRY_EXTENSION.length),
+        file.blobHash,
       )
-      if (nestedFilePaths === undefined) {
-        throw new GitAdapterError(
-          ErrorCode.INTERNAL_ERROR,
-          `Entry folder "${pathEntryFolder}/${relativePath}" disappeared while reading entry folder "${pathEntryFolder}"`,
-        )
-      }
-      filePaths.push(...nestedFilePaths)
-    } else if (
-      directoryEntry.isFile() &&
-      directoryEntry.name.endsWith(ENTRY_EXTENSION)
-    ) {
-      filePaths.push(relativePath)
     }
   }
-  return filePaths
+  return entryFiles
 }
 
 const getPathEntryFile = (pathEntryFolder: string, id: string): string =>
   `${pathEntryFolder}/${id}${ENTRY_EXTENSION}`
 
-// the file system follows symbolic links in any segment of a path, so that a symbolic link below the entry folder
-// could lead to files outside of it; consistent with the entry listing, which does not follow symbolic links, paths
-// through symbolic links are rejected
+// the file system follows symbolic links in any segment of a path, so that writing to a path through a symbolic link
+// below the entry folder could change files outside of it; consistent with reads, where symbolic links are no entries,
+// paths through symbolic links are rejected
 const assertPathHasNoSymbolicLinks = async (
   pathEntryFolder: string,
   id: string,
@@ -195,76 +208,6 @@ const assertPathHasNoSymbolicLinks = async (
   }
 }
 
-// returns undefined if the entry file does not exist
-const readEntryFile = async (
-  pathEntryFolder: string,
-  id: string,
-): Promise<Buffer | undefined> => {
-  const filePath = getPathEntryFile(pathEntryFolder, id)
-  try {
-    return await fs.readFile(filePath)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return undefined
-    }
-    throw new GitAdapterError(
-      ErrorCode.INTERNAL_ERROR,
-      `Failed to read entry file "${filePath}": ${(error as Error).message}`,
-    )
-  }
-}
-
-// same hash as Git computes for a blob, so that hashes match those of other adapters for unmodified files
-const createGitBlobHash = (fileContent: Buffer): string =>
-  createHash('sha1')
-    .update(`blob ${fileContent.length}\0`)
-    .update(fileContent)
-    .digest('hex')
-
-export const getSchema = async (
-  gitRepositoryOptions: FilesystemRepositoryOptions,
-): Promise<string> => {
-  const cwd = getWorkingDirectory()
-  const schemaFilePath = path.resolve(cwd, getPathSchema(gitRepositoryOptions))
-
-  try {
-    return await fs.readFile(schemaFilePath, {
-      encoding: 'utf-8',
-    })
-  } catch (error) {
-    throw new GitAdapterError(
-      ErrorCode.INTERNAL_ERROR,
-      `Failed to read schema file "${schemaFilePath}": ${(error as Error).message}`,
-    )
-  }
-}
-
-export const getLatestCommitHash = async (
-  gitRepositoryOptions: FilesystemRepositoryOptions,
-  ref: string,
-): Promise<string> => {
-  const cwd = getWorkingDirectory()
-  const currentBranch = await getCurrentBranch(cwd)
-
-  if (ref !== currentBranch) {
-    throw new GitAdapterError(
-      ErrorCode.BAD_REQUEST,
-      `Requested commit ref "${ref}" does not match currently checked out branch ` +
-        `"${currentBranch}"; this adapter requires the target branch to already be checked out`,
-    )
-  }
-
-  const currentCommitHash = await getCurrentCommitHash(cwd)
-  if (!currentCommitHash) {
-    throw new GitAdapterError(
-      ErrorCode.BAD_REQUEST,
-      `Requested commit ref "${ref}" does not have any existing commits`,
-    )
-  }
-
-  return currentCommitHash
-}
-
 // change of an entry file or of the schema file
 interface FileChange {
   path: string
@@ -284,7 +227,7 @@ export const createCommit = async (
   gitRepositoryOptions: FilesystemRepositoryOptions,
   commitDraft: CommitDraft,
 ): Promise<Commit> => {
-  const cwd = getWorkingDirectory()
+  const cwd = await getRepositoryDirectory()
   const pathEntryFolder = getPathEntryFolder(gitRepositoryOptions)
 
   const currentBranch = await getCurrentBranch(cwd)
@@ -469,6 +412,12 @@ const updateWorkingTree = async (
     ['reset', '--quiet', '--', ...changes.map((change) => change.path)],
     cwd,
   )
+}
+
+const getRepositoryDirectory = async (): Promise<string> => {
+  const cwd = getWorkingDirectory()
+  await assertTopLevelWorkingDirectory(cwd)
+  return cwd
 }
 
 function getWorkingDirectory(): string {

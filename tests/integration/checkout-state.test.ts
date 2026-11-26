@@ -3,9 +3,9 @@ import { execFile } from 'child_process'
 import { createAdapter } from '../../src'
 import {
   createGitFailedError,
-  createGitNotFoundError,
   getGitCalls,
   mockGit,
+  mockMissingGit,
   restoreEnvironment,
   setUpEnvironment,
 } from './system-mock'
@@ -26,27 +26,42 @@ describe('Checkout state', () => {
   })
 
   describe('getLatestCommitHash', () => {
-    it('should return the checked out commit hash for the checked out branch', async () => {
+    it('should resolve the ref as branch first with git rev-parse', async () => {
       mockGit({
-        'symbolic-ref --short HEAD': 'main',
-        'rev-parse HEAD': commitHash,
+        'rev-parse --show-prefix': '',
+        'rev-parse --verify --quiet refs/heads/main^{commit}': commitHash,
       })
 
       await expect(
         createAdapter({}).getLatestCommitHash('main'),
       ).resolves.toEqual(commitHash)
       expect(getGitCalls()).toEqual([
-        ['symbolic-ref', '--short', 'HEAD'],
-        ['rev-parse', 'HEAD'],
+        ['rev-parse', '--show-prefix'],
+        ['rev-parse', '--verify', '--quiet', 'refs/heads/main^{commit}'],
       ])
+    })
+
+    it('should resolve a ref that is no branch with git rev-parse', async () => {
+      mockGit({
+        'rev-parse --show-prefix': '',
+        'rev-parse --verify --quiet refs/heads/v1^{commit}': Object.assign(
+          new Error('Command failed'),
+          { code: 1, stderr: '' },
+        ),
+        'rev-parse --verify --quiet v1^{commit}': commitHash,
+      })
+
+      await expect(
+        createAdapter({}).getLatestCommitHash('v1'),
+      ).resolves.toEqual(commitHash)
     })
 
     it('should run git in the CI working directory', async () => {
       delete process.env.GITHUB_WORKSPACE
       process.env.CI_PROJECT_DIR = '/gitlab/project'
       mockGit({
-        'symbolic-ref --short HEAD': 'main',
-        'rev-parse HEAD': commitHash,
+        'rev-parse --show-prefix': '',
+        'rev-parse --verify --quiet refs/heads/main^{commit}': commitHash,
       })
 
       await createAdapter({}).getLatestCommitHash('main')
@@ -56,84 +71,74 @@ describe('Checkout state', () => {
       })
     })
 
-    it('should throw GitAdapterError with BAD_REQUEST when ref is not checked out', async () => {
+    it('should throw GitAdapterError with NOT_FOUND when the ref does not resolve to a commit', async () => {
       mockGit({
-        'symbolic-ref --short HEAD': 'main',
-        'rev-parse HEAD': commitHash,
+        'rev-parse --show-prefix': '',
+        'rev-parse --verify --quiet refs/heads/other^{commit}': Object.assign(
+          new Error('Command failed'),
+          { code: 1, stderr: '' },
+        ),
+        'rev-parse --verify --quiet other^{commit}': Object.assign(
+          new Error('Command failed'),
+          { code: 1, stderr: '' },
+        ),
       })
 
       await expect(
         createAdapter({}).getLatestCommitHash('other'),
-      ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
+      ).rejects.toMatchObject({ code: ErrorCode.NOT_FOUND })
     })
 
-    it('should throw GitAdapterError with BAD_REQUEST when branch has no commits', async () => {
+    it('should throw GitAdapterError with INTERNAL_ERROR including the message of git for a fatal git error', async () => {
       mockGit({
-        'symbolic-ref --short HEAD': 'main',
-        'rev-parse HEAD': createGitFailedError(
-          "fatal: ambiguous argument 'HEAD'",
-        ),
+        'rev-parse --show-prefix': '',
+        'rev-parse --verify --quiet refs/heads/main^{commit}':
+          createGitFailedError(
+            'fatal: detected dubious ownership in repository',
+          ),
       })
 
       await expect(
         createAdapter({}).getLatestCommitHash('main'),
-      ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
+      ).rejects.toMatchObject({
+        code: ErrorCode.INTERNAL_ERROR,
+        message: expect.stringContaining('dubious ownership'),
+      })
+      // the failed command is not run again to build the error
+      expect(getGitCalls()).toHaveLength(2)
     })
 
-    it('should throw GitAdapterError with INTERNAL_ERROR when HEAD is detached', async () => {
-      mockGit({
-        'symbolic-ref --short HEAD': createGitFailedError(
-          'fatal: ref HEAD is not a symbolic ref',
-        ),
-        'rev-parse HEAD': commitHash,
-      })
+    it('should throw GitAdapterError with BAD_REQUEST for a ref that would be an option', async () => {
+      mockGit({})
 
       await expect(
-        createAdapter({}).getLatestCommitHash('main'),
-      ).rejects.toMatchObject({ code: ErrorCode.INTERNAL_ERROR })
+        createAdapter({}).getLatestCommitHash('--all'),
+      ).rejects.toMatchObject({ code: ErrorCode.BAD_REQUEST })
+      expect(getGitCalls()).toEqual([])
     })
   })
 
   describe('without git binary', () => {
     beforeEach(() => {
-      mockGit({
-        'symbolic-ref --short HEAD': createGitNotFoundError(),
-        'rev-parse HEAD': createGitNotFoundError(),
+      mockMissingGit()
+    })
+
+    it('should throw GitAdapterError with INTERNAL_ERROR when resolving a ref', async () => {
+      await expect(
+        createAdapter({}).getLatestCommitHash('main'),
+      ).rejects.toMatchObject({
+        code: ErrorCode.INTERNAL_ERROR,
+        message: expect.stringContaining('requires the git binary'),
       })
     })
 
-    it('should determine branch and commit from GitHub Actions environment variables', async () => {
-      process.env.GITHUB_REF_NAME = 'main'
-      process.env.GITHUB_SHA = commitHash
-
+    it('should throw GitAdapterError with INTERNAL_ERROR when reading', async () => {
       await expect(
-        createAdapter({}).getLatestCommitHash('main'),
-      ).resolves.toEqual(commitHash)
-    })
-
-    it('should determine branch and commit from GitLab CI/CD environment variables', async () => {
-      process.env.CI_COMMIT_REF_NAME = 'main'
-      process.env.CI_COMMIT_SHA = commitHash
-
-      await expect(
-        createAdapter({}).getLatestCommitHash('main'),
-      ).resolves.toEqual(commitHash)
-    })
-
-    it('should throw GitAdapterError with INTERNAL_ERROR when branch cannot be determined', async () => {
-      process.env.GITHUB_SHA = commitHash
-
-      await expect(
-        createAdapter({}).getLatestCommitHash('main'),
-      ).rejects.toMatchObject({ code: ErrorCode.INTERNAL_ERROR })
-    })
-
-    it('should throw GitAdapterError with INTERNAL_ERROR when commit cannot be determined', async () => {
-      process.env.GITHUB_REF_NAME = 'main'
-
-      await expect(
-        createAdapter({}).getLatestCommitHash('main'),
-      ).rejects.toMatchObject({ code: ErrorCode.INTERNAL_ERROR })
+        createAdapter({}).getEntryHashes(commitHash),
+      ).rejects.toMatchObject({
+        code: ErrorCode.INTERNAL_ERROR,
+        message: expect.stringContaining('requires the git binary'),
+      })
     })
   })
 })

@@ -5,10 +5,17 @@
 This repository holds code for a [Commitspark Git adapter](https://github.com/commitspark/git-adapter) that provides
 access to Git repositories checked out in the local filesystem.
 
-This adapter is primarily meant to be used in read-only CI/CD pipeline scenarios where a single Git revision of entries
-is already checked out in the filesystem.
+This adapter is primarily meant to be used in read-only CI/CD pipeline scenarios, e.g. to validate a repository.
 
 Write support is present mostly for demonstration purposes and comes with several limitations.
+
+# Prerequisites
+
+- The `git` binary must be installed and included in `$PATH`, e.g. by using a CI/CD image that contains it.
+- The working directory must be the top-level folder of the Git repository, and the repository must contain the
+  commits to read. With shallow clones, only the fetched commits can be read.
+
+Otherwise, calls fail with a `GitAdapterError` with code `INTERNAL_ERROR`.
 
 # Working directory
 
@@ -20,13 +27,12 @@ The current working directory for file system access is determined by sequential
 
 # Read support
 
-The currently checked out branch and commit hash are determined in the following order:
+Reads return the state of the given commit from the Git object database, and `ref` can be any branch name, tag name
+or commit hash. Unlike with other adapters, other revision expressions such as `HEAD~1` resolve as well. Uncommitted
+changes in the working tree are not read.
 
-1. Output of querying with the `git` binary, if present
-2. GitHub `GITHUB_SHA` and `GITHUB_REF_NAME` environment variables
-3. GitLab `CI_COMMIT_SHA` and `CI_COMMIT_REF_NAME` environment variables
-
-If none of these lead to a result, an error is thrown.
+CI/CD pipelines usually check out a detached HEAD, without local branches. There, `ref` should be `HEAD` or the commit
+hash of the pipeline, e.g. `CI_COMMIT_SHA` in GitLab or `GITHUB_SHA` in GitHub Actions.
 
 # Write support
 
@@ -45,12 +51,9 @@ To make this check atomic, the commit is assembled in a temporary index with Git
 `git update-ref <branch> <new> <parentSha>`, which only succeeds if the branch still points to `parentSha`. Only
 afterwards are the changed entry files written to the working tree and the index.
 
-## Prerequisites and limitations
+## Limitations
 
-- The `git` binary must be installed and included in `$PATH`
 - When committing to a branch, the branch must already be checked out in the filesystem
-- Since entries are read from the working tree, reads in other processes may briefly see the previous content of
-  changed entry files after a commit, until the working tree has been updated
 - If writing to the working tree fails after a commit, the working tree is left in an undefined state
 - `git` must have a usable `user.name`/`user.email` configuration present
 
@@ -65,11 +68,13 @@ afterwards are the changed entry files written to the working tree and the index
 
 Instantiate the adapter with `createAdapter()` and the following options:
 
-| Option name            | Required | Default value                       | Description                        |
-|------------------------|----------|-------------------------------------|------------------------------------|
-| `checkedOutCommitHash` | False    | N/A                                 | Deprecated; has no effect          |
-| `pathSchemaFile`       | False    | `commitspark/schema/schema.graphql` | Path to schema file in repository  |
-| `pathEntryFolder`      | False    | `commitspark/entries/`              | Path to folder for content entries |
+| Option name       | Required | Default value                       | Description                        |
+|-------------------|----------|-------------------------------------|------------------------------------|
+| `pathSchemaFile`  | False    | `commitspark/schema/schema.graphql` | Path to schema file in repository  |
+| `pathEntryFolder` | False    | `commitspark/entries/`              | Path to folder for content entries |
+
+Paths are relative to the top-level folder of the repository and use `/` as separator. `createAdapter()` throws a
+`GitAdapterError` with code `INTERNAL_ERROR` for paths outside the repository, such as absolute paths.
 
 # License
 

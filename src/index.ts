@@ -4,6 +4,7 @@ import {
   EntryHash,
   GitAdapter,
 } from '@commitspark/git-adapter'
+import { getPathEntryFolder, getPathSchema } from './path-factory.ts'
 import {
   createCommit,
   getEntriesByIds,
@@ -13,10 +14,6 @@ import {
 } from './filesystem-adapter.ts'
 
 export interface FilesystemRepositoryOptions {
-  /**
-   * @deprecated Has no effect; the currently checked out commit is now determined automatically.
-   */
-  checkedOutCommitHash?: string
   pathSchemaFile?: string
   pathEntryFolder?: string
 }
@@ -24,12 +21,17 @@ export interface FilesystemRepositoryOptions {
 export function createAdapter(
   gitRepositoryOptions: FilesystemRepositoryOptions,
 ): GitAdapter {
+  // fail on invalid path options when creating the adapter instead of on first use
+  getPathEntryFolder(gitRepositoryOptions)
+  getPathSchema(gitRepositoryOptions)
+
   return {
     getEntryHashes: (...args): Promise<EntryHash[]> =>
       getEntryHashes(gitRepositoryOptions, ...args),
     getEntriesByIds: (...args): Promise<Entry[]> =>
       getEntriesByIds(gitRepositoryOptions, ...args),
-    getSchema: (): Promise<string> => getSchema(gitRepositoryOptions),
+    getSchema: (commitHash: string): Promise<string> =>
+      getSchema(gitRepositoryOptions, commitHash),
     getLatestCommitHash: (ref: string) =>
       getLatestCommitHash(gitRepositoryOptions, ref),
     createCommit: (commitDraft: CommitDraft) =>
