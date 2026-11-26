@@ -23,8 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Require the working directory to be the top-level folder of the repository and reject path options outside the
   repository when creating the adapter, so that reads and commits use the same paths and a misconfigured path fails
   instead of matching no entries
-- Throw `NOT_FOUND` for a missing schema file and `INTERNAL_ERROR` with the message of git for failures of git, e.g.
-  outside a repository, instead of `INTERNAL_ERROR` and `NOT_FOUND` respectively, as required by the adapter contract
+- Throw `BAD_REPOSITORY_DATA` for a missing schema file and `INTERNAL_ERROR` with the message of git for failures of
+  git, e.g. outside a repository, instead of `INTERNAL_ERROR` and `NOT_FOUND` respectively, as required by the adapter
+  contract
 - Throw `GitAdapterError` with code `BAD_REPOSITORY_DATA` for entry files that contain no YAML mapping instead of a
   `TypeError`, so that the error names the entry and points to the repository
 - Resolve a name that is both a branch name and a tag name to the branch instead of to the tag, as required by the
