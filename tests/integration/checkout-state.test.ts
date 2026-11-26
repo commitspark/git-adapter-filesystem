@@ -26,10 +26,10 @@ describe('Checkout state', () => {
   })
 
   describe('getLatestCommitHash', () => {
-    it('should resolve the ref with git rev-parse', async () => {
+    it('should resolve the ref as branch first with git rev-parse', async () => {
       mockGit({
         'rev-parse --show-prefix': '',
-        'rev-parse --verify --quiet main^{commit}': commitHash,
+        'rev-parse --verify --quiet refs/heads/main^{commit}': commitHash,
       })
 
       await expect(
@@ -37,8 +37,23 @@ describe('Checkout state', () => {
       ).resolves.toEqual(commitHash)
       expect(getGitCalls()).toEqual([
         ['rev-parse', '--show-prefix'],
-        ['rev-parse', '--verify', '--quiet', 'main^{commit}'],
+        ['rev-parse', '--verify', '--quiet', 'refs/heads/main^{commit}'],
       ])
+    })
+
+    it('should resolve a ref that is no branch with git rev-parse', async () => {
+      mockGit({
+        'rev-parse --show-prefix': '',
+        'rev-parse --verify --quiet refs/heads/v1^{commit}': Object.assign(
+          new Error('Command failed'),
+          { code: 1, stderr: '' },
+        ),
+        'rev-parse --verify --quiet v1^{commit}': commitHash,
+      })
+
+      await expect(
+        createAdapter({}).getLatestCommitHash('v1'),
+      ).resolves.toEqual(commitHash)
     })
 
     it('should run git in the CI working directory', async () => {
@@ -46,7 +61,7 @@ describe('Checkout state', () => {
       process.env.CI_PROJECT_DIR = '/gitlab/project'
       mockGit({
         'rev-parse --show-prefix': '',
-        'rev-parse --verify --quiet main^{commit}': commitHash,
+        'rev-parse --verify --quiet refs/heads/main^{commit}': commitHash,
       })
 
       await createAdapter({}).getLatestCommitHash('main')
@@ -59,6 +74,10 @@ describe('Checkout state', () => {
     it('should throw GitAdapterError with NOT_FOUND when the ref does not resolve to a commit', async () => {
       mockGit({
         'rev-parse --show-prefix': '',
+        'rev-parse --verify --quiet refs/heads/other^{commit}': Object.assign(
+          new Error('Command failed'),
+          { code: 1, stderr: '' },
+        ),
         'rev-parse --verify --quiet other^{commit}': Object.assign(
           new Error('Command failed'),
           { code: 1, stderr: '' },
@@ -73,9 +92,10 @@ describe('Checkout state', () => {
     it('should throw GitAdapterError with INTERNAL_ERROR including the message of git for a fatal git error', async () => {
       mockGit({
         'rev-parse --show-prefix': '',
-        'rev-parse --verify --quiet main^{commit}': createGitFailedError(
-          'fatal: detected dubious ownership in repository',
-        ),
+        'rev-parse --verify --quiet refs/heads/main^{commit}':
+          createGitFailedError(
+            'fatal: detected dubious ownership in repository',
+          ),
       })
 
       await expect(

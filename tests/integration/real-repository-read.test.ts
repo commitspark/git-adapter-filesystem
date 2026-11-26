@@ -75,6 +75,23 @@ describe('Reading from a real repository', () => {
       )
     })
 
+    it('should resolve a name used by both a branch and a tag to the branch', async () => {
+      writeFile('commitspark/entries/a.yaml', entry('A', 'one'))
+      const firstCommit = commitAll('First')
+      git('tag', 'same')
+      writeFile('commitspark/entries/a.yaml', entry('A', 'two'))
+      const secondCommit = commitAll('Second')
+      git('branch', 'same')
+      const adapter = createAdapter({})
+
+      await expect(adapter.getLatestCommitHash('same')).resolves.toEqual(
+        secondCommit,
+      )
+      await expect(
+        adapter.getLatestCommitHash('refs/tags/same'),
+      ).resolves.toEqual(firstCommit)
+    })
+
     it('should resolve refs with a detached HEAD, as in pull request checkouts of CI/CD pipelines', async () => {
       writeFile('commitspark/entries/a.yaml', entry('A', 'one'))
       const commit = commitAll('First')

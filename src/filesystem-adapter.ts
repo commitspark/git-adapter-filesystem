@@ -113,7 +113,11 @@ export const getLatestCommitHash = async (
   if (ref.startsWith('-')) {
     throw new GitAdapterError(ErrorCode.BAD_REQUEST, `Invalid ref "${ref}"`)
   }
-  const commitHash = await resolveCommit(await getRepositoryDirectory(), ref)
+  const cwd = await getRepositoryDirectory()
+  // a branch takes precedence over a tag of the same name, unlike in git rev-parse
+  const commitHash =
+    (await resolveCommit(cwd, `refs/heads/${ref}`)) ??
+    (await resolveCommit(cwd, ref))
   if (commitHash === undefined) {
     throw new GitAdapterError(
       ErrorCode.NOT_FOUND,
